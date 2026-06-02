@@ -1,0 +1,65 @@
+[package]
+name = "brain-shell"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Interactive client (psql/redis-cli equivalent) for the Brain memory database. A thin UI over brain-db-sdk."
+license = "Apache-2.0"
+repository = "https://github.com/brain-db-io/brain-shell"
+
+[lib]
+name = "brain_shell"
+path = "src/lib.rs"
+
+# The user-facing command is `brain` — the psql/redis-cli equivalent.
+[[bin]]
+name = "brain"
+path = "src/main.rs"
+
+[dependencies]
+# The wire contract: brain-shell is a consumer of the SDK, never of Brain's
+# internal crates. Path dep to the sibling repo under brain-db-io; swap to a
+# git/crates.io dep when the SDK publishes (one-line change).
+brain-db-sdk = { path = "../brain-sdk/rust" }
+
+# Async runtime — the SDK transport is tokio-based.
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "io-util"] }
+
+# CLI arg parsing — the same clap tree parses one-shot argv and each REPL line.
+clap = { version = "4", features = ["derive", "env"] }
+# Shell-completion script generation for `brain generate-completion`.
+clap_complete = "4"
+# Interactive REPL line editor (history, tab completion, key bindings).
+# The ported editor/completion code targets the rustyline 14 API.
+rustyline = "14"
+
+anyhow = "1"        # binary-level error handling
+thiserror = "1"     # typed shell error taxonomy
+uuid = { version = "1", features = ["v7"] }  # request_id / agent_id minting
+tracing = "0.1"
+
+# On-disk shell config + named-agent registry (~/.config/brain/config.toml).
+toml = "0.8"
+dirs = "5"
+# Atomic config-file writes (write-temp-then-rename).
+tempfile = "3"
+
+# Terminal rendering (vendored `render` module). comfy-table for tables,
+# owo-colors for the theme painter, termtree for graph neighborhoods,
+# supports-hyperlinks + terminal_size for capability detection,
+# unicode-segmentation for grapheme-aware truncation, time for timestamp
+# formatting, serde(+json/yaml/json_path) for the structured output modes.
+comfy-table = "7"
+owo-colors = "4"
+termtree = "0.5"
+supports-hyperlinks = "3"
+terminal_size = "0.4"
+unicode-segmentation = "1.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+serde_json_path = "0.7"
+time = { version = "0.3", features = ["formatting", "parsing"] }
+
+[dev-dependencies]
+tempfile = "3"
