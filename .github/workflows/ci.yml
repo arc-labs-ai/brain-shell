@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    steps:
+      # brain-shell depends on the SDK via a path dep (../brain-sdk/rust),
+      # so both repos are checked out as siblings under the workspace.
+      # If brain-sdk is private, add a PAT with read access as `token:`.
+      - name: Checkout brain-shell
+        uses: actions/checkout@v4
+        with:
+          path: brain-shell
+      - name: Checkout brain-sdk (sibling, for the path dep)
+        uses: actions/checkout@v4
+        with:
+          repository: brain-db-io/brain-sdk
+          ref: main
+          path: brain-sdk
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: brain-shell
+
+      - name: Format check
+        working-directory: brain-shell
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        working-directory: brain-shell
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Test
+        working-directory: brain-shell
+        run: cargo test --all-targets
+      - name: Doc tests
+        working-directory: brain-shell
+        run: cargo test --doc
