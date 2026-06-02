@@ -311,7 +311,7 @@ enum ConfigSub {
 
 fn parse_meta(line: &str) -> Option<Meta> {
     let lower = line.trim();
-    if lower == "quit" || lower == "exit" || lower == "\\q" {
+    if lower == "quit" || lower == "exit" || lower == "\\q" || lower == "\\quit" {
         return Some(Meta::Quit);
     }
     if lower == "?" || lower == "\\?" || lower == "help" {
