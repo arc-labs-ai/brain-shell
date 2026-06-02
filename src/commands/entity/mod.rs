@@ -7,4 +7,5 @@
 
 pub mod list;
 pub mod neighbors;
+pub mod resolve;
 pub mod show;

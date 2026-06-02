@@ -76,6 +76,10 @@ pub async fn dispatch_command(
             op: "entity_show",
             result: commands::entity::show::run(client, session, a).await,
         },
+        Command::Entity(EntityCommand::Resolve(a)) => Dispatched::Ran {
+            op: "entity_resolve",
+            result: commands::entity::resolve::run(client, session, a).await,
+        },
         Command::Entity(EntityCommand::Neighbors(a)) => Dispatched::Ran {
             op: "entity_neighbors",
             result: commands::entity::neighbors::run(client, session, a).await,
@@ -143,7 +147,10 @@ pub fn deferred_verb_name(cmd: &Command) -> Option<&'static str> {
         Command::Txn(_) | Command::Subscribe(_) => None,
         // entity / statement / relation read verbs are wired.
         Command::Entity(
-            EntityCommand::List(_) | EntityCommand::Show(_) | EntityCommand::Neighbors(_),
+            EntityCommand::List(_)
+            | EntityCommand::Show(_)
+            | EntityCommand::Resolve(_)
+            | EntityCommand::Neighbors(_),
         ) => None,
         Command::Statement(StatementCommand::List(_) | StatementCommand::Show(_)) => None,
         Command::Relation(RelationCommand::List(_)) => None,
