@@ -8,8 +8,8 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
-use brain_db_sdk::{Auth, BrainClient, ClientConfig};
 use brain_db_sdk::error::BrainError;
+use brain_db_sdk::{Auth, BrainClient, ClientConfig};
 
 /// Connect to `addr` as `agent_id`, with a per-request `timeout`.
 pub async fn connect(

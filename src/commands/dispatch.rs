@@ -116,9 +116,10 @@ pub async fn dispatch_command(
             op: "subscribe",
             result: commands::subscribe::run(client, session, a).await,
         },
-        Command::Config(_) | Command::Agent(_) | Command::GenerateCompletion(_) | Command::Shell => {
-            Dispatched::Handled
-        }
+        Command::Config(_)
+        | Command::Agent(_)
+        | Command::GenerateCompletion(_)
+        | Command::Shell => Dispatched::Handled,
         other => Dispatched::Deferred(
             deferred_verb_name(&other).expect("invariant: non-wired, non-handled verb has a name"),
         ),
@@ -141,9 +142,9 @@ pub fn deferred_verb_name(cmd: &Command) -> Option<&'static str> {
         Command::Plan(_) | Command::Reason(_) | Command::Link(_) | Command::Unlink(_) => None,
         Command::Txn(_) | Command::Subscribe(_) => None,
         // entity / statement / relation read verbs are wired.
-        Command::Entity(EntityCommand::List(_) | EntityCommand::Show(_) | EntityCommand::Neighbors(_)) => {
-            None
-        }
+        Command::Entity(
+            EntityCommand::List(_) | EntityCommand::Show(_) | EntityCommand::Neighbors(_),
+        ) => None,
         Command::Statement(StatementCommand::List(_) | StatementCommand::Show(_)) => None,
         Command::Relation(RelationCommand::List(_)) => None,
         // `mention` has no wire op yet.

@@ -559,10 +559,7 @@ fn print_caps(client: &BrainClient) {
         "  max_concurrent_streams = {}",
         features.max_concurrent_streams
     );
-    println!(
-        "  idle_timeout_seconds = {}",
-        features.idle_timeout_seconds
-    );
+    println!("  idle_timeout_seconds = {}", features.idle_timeout_seconds);
 }
 
 fn handle_agent_sub(sub: AgentSub, session: &mut Session, agent_source: &AgentIdSource) {
@@ -580,7 +577,10 @@ fn handle_agent_sub(sub: AgentSub, session: &mut Session, agent_source: &AgentId
                 println!("(no named agents — `\\agent create <name>` to add one)");
                 return;
             }
-            println!("{:<2} {:<16} {:<36} {:<20} NOTE", "", "NAME", "ID", "CREATED");
+            println!(
+                "{:<2} {:<16} {:<36} {:<20} NOTE",
+                "", "NAME", "ID", "CREATED"
+            );
             for (name, entry) in config.agents() {
                 let marker = if Some(name.as_str()) == bound_name.as_deref() {
                     "*"

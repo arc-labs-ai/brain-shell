@@ -106,9 +106,6 @@ mod tests {
             limit: 50,
             prefix: None,
         };
-        assert!(matches!(
-            build_request(&args),
-            Err(BrainError::Protocol(_))
-        ));
+        assert!(matches!(build_request(&args), Err(BrainError::Protocol(_))));
     }
 }

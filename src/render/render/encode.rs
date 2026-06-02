@@ -617,11 +617,7 @@ fn augment_extractor_summary(res: &StageResult, has_active_schema: bool) -> Stri
 /// stages from the encode ack. Empty → `none queued` so a deployment
 /// with no workers wired reads honestly; non-empty → snake-case list
 /// with `·` separators (e.g. `auto_edge · temporal_edge · extractor`).
-fn write_stages_row(
-    w: &mut dyn Write,
-    ctx: &RenderCtx,
-    pending: &[StageKind],
-) -> io::Result<()> {
+fn write_stages_row(w: &mut dyn Write, ctx: &RenderCtx, pending: &[StageKind]) -> io::Result<()> {
     let theme = &ctx.theme;
     let policy = ctx.policy;
     let value = if pending.is_empty() {

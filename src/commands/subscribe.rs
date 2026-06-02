@@ -17,9 +17,7 @@
 use std::io::{self, Write};
 
 use brain_db_sdk::error::BrainError;
-use brain_db_sdk::wire::types::{
-    SubscribeRequest, SubscriptionEvent, SubscriptionFilter,
-};
+use brain_db_sdk::wire::types::{SubscribeRequest, SubscriptionEvent, SubscriptionFilter};
 use brain_db_sdk::BrainClient;
 use serde_json::Value;
 

@@ -16,10 +16,10 @@
 //! across all verbs and a future "Globals" card or top-level help can
 //! own them.
 
-use brain_shell::render::{dispatch, OutputFormat, RenderCtx, TermPolicy, Theme};
 use brain_shell::parser::{
     EncodeArgs, ForgetArgs, LinkArgs, PlanArgs, ReasonArgs, RecallArgs, SubscribeArgs, UnlinkArgs,
 };
+use brain_shell::render::{dispatch, OutputFormat, RenderCtx, TermPolicy, Theme};
 use brain_shell::repl::help::lookup;
 use clap::{Args, Command};
 

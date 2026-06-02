@@ -48,7 +48,9 @@ pub async fn run(
             let all = client
                 .list_relations_from(&from_request(from_entity, type_filter, args.limit))
                 .await?;
-            all.into_iter().filter(|r| r.to_entity == to_entity).collect()
+            all.into_iter()
+                .filter(|r| r.to_entity == to_entity)
+                .collect()
         }
         (None, None) => {
             return Err(BrainError::Protocol(

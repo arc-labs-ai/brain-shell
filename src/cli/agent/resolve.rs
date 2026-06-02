@@ -28,9 +28,9 @@ use std::path::Path;
 use uuid::Uuid;
 
 use super::super::config::{Config, ConfigError, MigrationNote};
-use crate::core::AgentId;
 use super::auto_mint;
 use super::source::{AgentIdSource, ResolvedAgentId};
+use crate::core::AgentId;
 
 /// Env-var read in the named-agent slot (`BRAIN_AGENT=work`).
 pub const ENV_VAR_NAME: &str = "BRAIN_AGENT";
