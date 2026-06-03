@@ -357,6 +357,8 @@ pub enum EntityCommand {
     List(EntityListArgs),
     /// Stacked-card view: identity, aliases, statements, relations.
     Show(EntityShowArgs),
+    /// Resolve a candidate name to an entity id.
+    Resolve(EntityResolveArgs),
     /// Termtree neighborhood rooted at this entity.
     Neighbors(EntityNeighborsArgs),
 }
@@ -378,6 +380,25 @@ pub struct EntityListArgs {
 pub struct EntityShowArgs {
     /// Entity id (UUID) or canonical name.
     pub id_or_name: String,
+    /// Entity type id. Required to show by name (resolved first); ignored
+    /// when the positional is already an id.
+    #[arg(long = "type")]
+    pub type_id: Option<u32>,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct EntityResolveArgs {
+    /// Candidate name to resolve.
+    pub name: String,
+    /// Entity type id hint. Required: the server rejects an unhinted resolve.
+    #[arg(long = "type")]
+    pub type_id: u32,
+    /// Optional disambiguating context passed to the resolver.
+    #[arg(long)]
+    pub context: Option<String>,
+    /// Create a new entity when no match is found.
+    #[arg(long = "allow-create")]
+    pub allow_create: bool,
 }
 
 #[derive(Debug, Args, Clone)]

@@ -10,7 +10,9 @@ use std::io::{self, Write};
 use brain_db_sdk::wire::types::MemoryResult;
 use serde_json::{json, Value};
 
-use crate::render::render::{fmt_hex_16, fmt_hex_16_bare, fmt_id, fmt_kind, fmt_short_id, fmt_uuid};
+use crate::render::render::{
+    fmt_hex_16, fmt_hex_16_bare, fmt_id, fmt_kind, fmt_short_id, fmt_uuid,
+};
 use crate::render::table::middle_truncate;
 use crate::render::theme::Token;
 use crate::render::{Render, RenderCtx};
@@ -381,7 +383,10 @@ mod tests {
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
-        assert!(!s.contains("agent="), "zero agent should not render token: {s}");
+        assert!(
+            !s.contains("agent="),
+            "zero agent should not render token: {s}"
+        );
 
         // Known agent → first 8 hex of the uuid rides on the line.
         let mut hit = make_hit("owned", 0.9);

@@ -40,7 +40,11 @@ pub type Rendered = Box<dyn Render>;
 /// `TermPolicy::detect`, which reconciles them with NO_COLOR / CLICOLOR
 /// / isatty.
 #[must_use]
-pub fn render_ctx(output: OutputFormatArg, color: ColorMode, hyperlinks: HyperlinkMode) -> RenderCtx {
+pub fn render_ctx(
+    output: OutputFormatArg,
+    color: ColorMode,
+    hyperlinks: HyperlinkMode,
+) -> RenderCtx {
     let render_color: RenderColorMode = color.into();
     let render_hyperlinks: RenderHyperlinkMode = hyperlinks.into();
     RenderCtx {

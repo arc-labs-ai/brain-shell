@@ -116,7 +116,9 @@ mod tests {
         });
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).expect("render");
-        assert!(String::from_utf8(buf).expect("utf8").contains("removed=true"));
+        assert!(String::from_utf8(buf)
+            .expect("utf8")
+            .contains("removed=true"));
     }
 
     #[test]

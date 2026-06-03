@@ -1,21 +1,24 @@
-//! `entity show <id>` — stacked-card view of one entity.
+//! `entity show <id|name>` — stacked-card view of one entity.
 //!
 //! Fetches the entity by id, then fans out to relation-list (from/to) and
 //! statement-list (by subject) to fill the card's sections. The wire views
 //! carry only ids on the far side of a relation, so the "other name"
 //! columns fall back to the id string. `mentioned_in` stays empty — there
-//! is no mention-list wire op. `entity show <name>` is rejected cleanly:
-//! there is no ENTITY_RESOLVE verb to map a name to an id.
+//! is no mention-list wire op. A non-id positional is resolved first via
+//! ENTITY_RESOLVE when `--type <id>` is supplied; without a type, the name
+//! case is rejected cleanly because the server's resolver needs a type hint.
 
 use brain_db_sdk::error::BrainError;
 use brain_db_sdk::wire::types::{
-    RelationListFromRequest, RelationListToRequest, RelationView, StatementListRequest,
+    RelationListFromRequest, RelationListToRequest, RelationView, ResolutionOutcomeWire,
+    StatementListRequest,
 };
 use brain_db_sdk::BrainClient;
 
+use crate::commands::entity::resolve;
 use crate::commands::typed_graph::{id_to_string, kind_label, object_label, parse_wire_id};
 use crate::commands::Rendered;
-use crate::parser::EntityShowArgs;
+use crate::parser::{EntityResolveArgs, EntityShowArgs};
 use crate::render::{EntityCard, RelationSummary, StatementSummary};
 use crate::session::Session;
 
@@ -24,14 +27,7 @@ pub async fn run(
     _session: &mut Session,
     args: EntityShowArgs,
 ) -> Result<Rendered, BrainError> {
-    // `entity show` accepts only an id: there is no ENTITY_RESOLVE verb in
-    // the SDK to turn a canonical name into an id, so a non-id argument is
-    // a clean capability gap rather than a silent miss.
-    let entity_id = parse_wire_id(&args.id_or_name, "entity id").map_err(|_| {
-        BrainError::Protocol(
-            "entity show by name needs the resolve op, not yet available; use the entity id".into(),
-        )
-    })?;
+    let entity_id = resolve_id(client, &args).await?;
 
     let resp = client
         .get_entity(&brain_db_sdk::wire::types::EntityGetRequest { entity_id })
@@ -104,6 +100,47 @@ pub async fn run(
             .collect(),
     };
     Ok(Box::new(card))
+}
+
+/// Turn the positional into an entity id. A valid UUID is used directly; a
+/// non-id name is resolved via ENTITY_RESOLVE when `--type <id>` is given.
+/// Without a type, the name case is a clean error (the resolver needs a hint).
+async fn resolve_id(client: &BrainClient, args: &EntityShowArgs) -> Result<[u8; 16], BrainError> {
+    if let Ok(id) = parse_wire_id(&args.id_or_name, "entity id") {
+        return Ok(id);
+    }
+
+    let type_id = args.type_id.ok_or_else(|| {
+        BrainError::Protocol(
+            "entity show by name needs --type <id> to resolve; or pass the entity id".into(),
+        )
+    })?;
+
+    let resp = resolve::resolve(
+        client,
+        &EntityResolveArgs {
+            name: args.id_or_name.clone(),
+            type_id,
+            context: None,
+            allow_create: false,
+        },
+    )
+    .await?;
+
+    match resp.outcome {
+        ResolutionOutcomeWire::Resolved | ResolutionOutcomeWire::Created => {
+            Ok(resp.resolved_entity)
+        }
+        ResolutionOutcomeWire::Ambiguous => Err(BrainError::Protocol(format!(
+            "`{}` is ambiguous ({} candidates); show by id instead",
+            args.id_or_name,
+            resp.candidate_ids.len()
+        ))),
+        ResolutionOutcomeWire::NotFound => Err(BrainError::Protocol(format!(
+            "no entity named `{}` for type {type_id}",
+            args.id_or_name
+        ))),
+    }
 }
 
 /// Build a relation summary where `other` is the endpoint on the far side

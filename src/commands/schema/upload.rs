@@ -49,11 +49,7 @@ pub async fn run(
     }
 
     Ok(Box::new(AdHocTable {
-        headers: vec![
-            "namespace".into(),
-            "active_version".into(),
-            "status".into(),
-        ],
+        headers: vec!["namespace".into(), "active_version".into(), "status".into()],
         rows: vec![vec![
             resp.namespace,
             resp.schema_version.to_string(),

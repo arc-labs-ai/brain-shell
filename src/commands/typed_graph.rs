@@ -145,8 +145,12 @@ mod tests {
     fn object_entity_id_only_for_entity_refs() {
         let id = [2u8; 16];
         assert!(object_entity_id(&StatementObjectWire::EntityRef(id)).is_some());
-        assert!(object_entity_id(&StatementObjectWire::Value(StatementValueWire::Bool(true))).is_none());
+        assert!(
+            object_entity_id(&StatementObjectWire::Value(StatementValueWire::Bool(true))).is_none()
+        );
         assert!(object_is_entity(&StatementObjectWire::EntityRef(id)));
-        assert!(!object_is_entity(&StatementObjectWire::Value(StatementValueWire::Bool(true))));
+        assert!(!object_is_entity(&StatementObjectWire::Value(
+            StatementValueWire::Bool(true)
+        )));
     }
 }

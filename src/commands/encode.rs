@@ -97,8 +97,7 @@ fn resolve_source_text(args: &EncodeArgs) -> Result<String, BrainError> {
                     .to_string(),
             ));
         }
-        return std::fs::read_to_string(path)
-            .map_err(|e| client_side(format!("read {path}: {e}")));
+        return std::fs::read_to_string(path).map_err(|e| client_side(format!("read {path}: {e}")));
     }
     match &args.text {
         Some(t) if !t.is_empty() => Ok(t.clone()),

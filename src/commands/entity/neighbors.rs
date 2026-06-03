@@ -57,7 +57,11 @@ pub async fn run(
     }
     for r in &into {
         children.push(GraphNode {
-            label: format!("{} --[{}]-->", id_to_string(&r.from_entity), r.relation_type),
+            label: format!(
+                "{} --[{}]-->",
+                id_to_string(&r.from_entity),
+                r.relation_type
+            ),
             children: Vec::new(),
         });
     }

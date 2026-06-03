@@ -60,15 +60,21 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
         return run_config(c);
     }
     if let Some(Command::Agent(a)) = cli.subcommand.clone() {
-        return run_agent(a, cli.global.agent.as_deref(), cli.global.agent_id.as_deref());
+        return run_agent(
+            a,
+            cli.global.agent.as_deref(),
+            cli.global.agent_id.as_deref(),
+        );
     }
 
     // ── verbs not yet ported in this build ─────────────────────────
     // Bare `brain` / `brain shell` launch the REPL (below) and must not
     // trip this guard, so they're excluded from the deferral set.
     if !matches!(cli.subcommand, None | Some(Command::Shell)) {
-        if let Some(verb) =
-            cli.subcommand.as_ref().and_then(commands::deferred_verb_name)
+        if let Some(verb) = cli
+            .subcommand
+            .as_ref()
+            .and_then(commands::deferred_verb_name)
         {
             eprintln!("{verb} is not yet available in this build");
             return ExitCode::from(2);
@@ -123,15 +129,11 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     let timeout = Duration::from_secs(cli.global.timeout);
 
     // Output format: per-invocation flag > persisted setting > `Auto`.
-    let output_format = cli
-        .global
-        .output
-        .clone()
-        .unwrap_or(match settings.output {
-            Some(crate::cli::config::OutputPref::Json) => OutputFormatArg::Json,
-            Some(crate::cli::config::OutputPref::Table) => OutputFormatArg::Table,
-            None => OutputFormatArg::Auto,
-        });
+    let output_format = cli.global.output.clone().unwrap_or(match settings.output {
+        Some(crate::cli::config::OutputPref::Json) => OutputFormatArg::Json,
+        Some(crate::cli::config::OutputPref::Table) => OutputFormatArg::Table,
+        None => OutputFormatArg::Auto,
+    });
 
     let client = match connection::connect(addr, agent_id, timeout).await {
         Ok(c) => c,
@@ -154,14 +156,22 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
         };
     }
 
-    let cmd = cli
-        .subcommand
-        .expect("invariant: bare/shell handled above");
+    let cmd = cli.subcommand.expect("invariant: bare/shell handled above");
 
     let started = Instant::now();
-    // Shared verb dispatch — the same wired-verb set + deferral list the
-    // REPL uses, so the two surfaces can't drift.
-    let res: Result<Box<dyn crate::render::Render>, BrainError> =
+    // `info` is assembled here (not in `dispatch_command`) because the card
+    // needs the resolved agent identity the dispatcher doesn't carry — the
+    // same `info::collect` the REPL's `\info` meta uses. No wire I/O.
+    let res: Result<Box<dyn crate::render::Render>, BrainError> = if matches!(cmd, Command::Info) {
+        Ok(Box::new(commands::info::collect(
+            &client,
+            &session,
+            typed_agent_id,
+            &agent_source,
+        )))
+    } else {
+        // Shared verb dispatch — the same wired-verb set + deferral list the
+        // REPL uses, so the two surfaces can't drift.
         match commands::dispatch_command(&client, &mut session, cmd).await {
             commands::Dispatched::Ran { result, .. } => result,
             commands::Dispatched::Deferred(verb) => {
@@ -169,9 +179,10 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
                 return ExitCode::from(2);
             }
             commands::Dispatched::Handled => {
-                unreachable!("config / agent / generate-completion handled above")
+                unreachable!("config / agent / info / generate-completion handled above")
             }
-        };
+        }
+    };
     let elapsed = started.elapsed();
     let elapsed_ms = if session.timing {
         Some(elapsed.as_millis())
@@ -182,7 +193,11 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     match res {
         Ok(body) => {
             let mut stdout = std::io::stdout();
-            let ctx = render_ctx(session.output.clone(), cli.global.color, cli.global.hyperlinks);
+            let ctx = render_ctx(
+                session.output.clone(),
+                cli.global.color,
+                cli.global.hyperlinks,
+            );
             if let Err(e) = crate::render::dispatch(body.as_ref(), &ctx, &mut stdout) {
                 eprintln!("output error: {e}");
                 return ExitCode::from(1);
@@ -201,7 +216,11 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => {
-            let ctx = render_ctx(session.output.clone(), cli.global.color, cli.global.hyperlinks);
+            let ctx = render_ctx(
+                session.output.clone(),
+                cli.global.color,
+                cli.global.hyperlinks,
+            );
             let rendered = commands::brain_error_to_renderable(&e);
             let mut stderr = std::io::stderr();
             if crate::render::dispatch(&rendered, &ctx, &mut stderr).is_err() {
@@ -311,7 +330,10 @@ fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<
                 println!("(no named agents — `brain agent create <name>` to add one)");
                 return ExitCode::SUCCESS;
             }
-            println!("{:<2} {:<16} {:<36} {:<20} NOTE", "", "NAME", "ID", "CREATED");
+            println!(
+                "{:<2} {:<16} {:<36} {:<20} NOTE",
+                "", "NAME", "ID", "CREATED"
+            );
             for (name, entry) in config.agents() {
                 let marker = if Some(name.as_str()) == bound_name.as_deref() {
                     "*"
