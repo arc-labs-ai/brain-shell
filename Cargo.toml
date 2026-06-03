@@ -18,9 +18,11 @@ path = "src/main.rs"
 
 [dependencies]
 # The wire contract: brain-shell is a consumer of the SDK, never of Brain's
-# internal crates. Path dep to the sibling repo under brain-db-io; swap to a
-# git/crates.io dep when the SDK publishes (one-line change).
-brain-db-sdk = { path = "../brain-sdk/rust" }
+# internal crates. We depend on the PUBLISHED crate from crates.io; the
+# `[patch.crates-io]` at the bottom redirects to the sibling checkout for
+# local co-development, so this repo builds standalone (from crates.io) and
+# in the side-by-side layout (from the path) without edits.
+brain-db-sdk = "0.1"
 
 # Async runtime — the SDK transport is tokio-based.
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "io-util"] }
@@ -63,3 +65,9 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
 tempfile = "3"
+
+# Local co-development override: build against the sibling SDK checkout
+# instead of the crates.io release. Remove (or comment out) to force a
+# pure crates.io build, e.g. when validating the published package.
+[patch.crates-io]
+brain-db-sdk = { path = "../brain-sdk/rust" }
