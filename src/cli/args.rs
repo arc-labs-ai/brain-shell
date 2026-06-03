@@ -159,9 +159,19 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     let cmd = cli.subcommand.expect("invariant: bare/shell handled above");
 
     let started = Instant::now();
-    // Shared verb dispatch — the same wired-verb set + deferral list the
-    // REPL uses, so the two surfaces can't drift.
-    let res: Result<Box<dyn crate::render::Render>, BrainError> =
+    // `info` is assembled here (not in `dispatch_command`) because the card
+    // needs the resolved agent identity the dispatcher doesn't carry — the
+    // same `info::collect` the REPL's `\info` meta uses. No wire I/O.
+    let res: Result<Box<dyn crate::render::Render>, BrainError> = if matches!(cmd, Command::Info) {
+        Ok(Box::new(commands::info::collect(
+            &client,
+            &session,
+            typed_agent_id,
+            &agent_source,
+        )))
+    } else {
+        // Shared verb dispatch — the same wired-verb set + deferral list the
+        // REPL uses, so the two surfaces can't drift.
         match commands::dispatch_command(&client, &mut session, cmd).await {
             commands::Dispatched::Ran { result, .. } => result,
             commands::Dispatched::Deferred(verb) => {
@@ -169,9 +179,10 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
                 return ExitCode::from(2);
             }
             commands::Dispatched::Handled => {
-                unreachable!("config / agent / generate-completion handled above")
+                unreachable!("config / agent / info / generate-completion handled above")
             }
-        };
+        }
+    };
     let elapsed = started.elapsed();
     let elapsed_ms = if session.timing {
         Some(elapsed.as_millis())

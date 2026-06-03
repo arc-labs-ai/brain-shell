@@ -123,6 +123,11 @@ pub async fn dispatch_command(
         Command::Config(_)
         | Command::Agent(_)
         | Command::GenerateCompletion(_)
+        // `info` is built from cached state + the resolved agent identity,
+        // which the dispatcher doesn't carry — both the CLI and the REPL
+        // assemble it at the call site, so it's caller-owned like config /
+        // agent / shell.
+        | Command::Info
         | Command::Shell => Dispatched::Handled,
         other => Dispatched::Deferred(
             deferred_verb_name(&other).expect("invariant: non-wired, non-handled verb has a name"),
@@ -163,6 +168,20 @@ pub fn deferred_verb_name(cmd: &Command) -> Option<&'static str> {
             | SchemaCommand::List(_)
             | SchemaCommand::Validate(_),
         ) => None,
-        Command::Info => Some("info"),
+        // `info` is wired (assembled at the call site, not deferred).
+        Command::Info => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn info_is_wired_not_deferred() {
+        // `info` is assembled at the call site (CLI `args.rs` + REPL
+        // `\info`), so it must not be in the deferred set — otherwise
+        // `brain info` would print "not yet available in this build".
+        assert!(deferred_verb_name(&Command::Info).is_none());
     }
 }
