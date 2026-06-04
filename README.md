@@ -88,8 +88,7 @@ completion. Meta-commands are `\`-prefixed: `\help [verb]`, `\agent`, `\config`,
 All of the backup shell's verbs are wired end-to-end over both surfaces.
 Not yet available: `mention` (no wire op exists server-side) and a one-shot
 `brain info` (use `\info` in the REPL). `encode --wait` parses but is a no-op
-pending event-stream integration. See [`PLAN.md`](PLAN.md) for the full build
-record.
+pending event-stream integration.
 
 ## License
 
