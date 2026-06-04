@@ -298,9 +298,9 @@ fn help_recall() -> HelpVerb {
         ],
         sources: vec![],
         description: vec![
-            "Vector-similarity search. Embeds the query text, runs a top-K HNSW lookup in the active context's index, returns ranked MemoryResults.".into(),
-            "Score fields: `similarity_score` is the raw cosine from the semantic retriever (the substrate path uses it directly; the hybrid path reports the semantic retriever's contribution to the fusion, or 0.0 if semantic didn't fire). `confidence` is the value `--confidence` thresholds against — `similarity_score` on substrate, RRF-fused `fused_score` on hybrid.".into(),
-            "Hybrid hits show a `retrievers=N` column with the count of contributing retrievers (semantic + lexical + graph). A row with `retrievers=1` matched only one retriever and is typically weak signal — don't read its fused-score ranking as authoritative.".into(),
+            "Retrieval over the active context. Embeds the query text, fans out to the three retrievers (semantic + lexical + graph), fuses their ranks with RRF, and returns ranked MemoryResults. There is one retrieval path — every request walks it.".into(),
+            "Score fields: `similarity_score` is the semantic retriever's cosine contribution to the fusion (0.0 if semantic didn't surface the row). `confidence` is the value `--confidence` thresholds against — the RRF-fused `fused_score`.".into(),
+            "Each hit carries a `retrievers=N` column with the count of contributing retrievers (semantic + lexical + graph). A row with `retrievers=1` matched only one retriever and is typically weak signal — don't read its fused-score ranking as authoritative. The column is omitted when the list is empty (e.g. results served from a transaction's pending-write overlay).".into(),
             "When the top-K scores cluster within Δ<0.001 of each other, the table footer warns that ranking may not be meaningful (computed client-side from the response). Typically the embedder isn't loaded (test mode), or the query genuinely doesn't discriminate.".into(),
             "Returned ids are remembered in the session for tab-completion — the next `forget` or `link` can refer to them by short id.".into(),
         ],
@@ -328,6 +328,13 @@ fn help_plan() -> HelpVerb {
                 "--max-wall-time-ms N",
                 "wall-time budget in ms; default 5000",
             ),
+            row("--max-branches N", "search-frontier cap; default 256"),
+            row(
+                "--strategy S",
+                "auto (default) | a-star | mcts | attractor-rollout",
+            ),
+            row("--filter-context N", "repeatable; restrict to these contexts"),
+            row("--txn HEX", "plan inside an open transaction"),
         ],
         sources: vec![],
         description: vec![
@@ -355,6 +362,12 @@ fn help_reason() -> HelpVerb {
                 "[0.0, 1.0] confidence threshold; default 0.0",
             ),
             row("--max-inferences N", "result cap; default 16"),
+            row(
+                "--budget-wall-time-ms N",
+                "wall-time budget in ms; default 5000",
+            ),
+            row("--filter-context N", "repeatable; restrict to these contexts"),
+            row("--txn HEX", "reason inside an open transaction"),
         ],
         sources: vec![],
         description: vec![

@@ -12,8 +12,8 @@ pub use command::{
     ConfigCommand, EdgeKindArg, EdgeSpec, EncodeArgs, EntityCommand, EntityListArgs,
     EntityNeighborsArgs, EntityResolveArgs, EntityShowArgs, ForgetArgs, ForgetModeArg,
     GenerateCompletionArgs, GlobalOpts, HyperlinkMode, KindArg, LinkArgs, MemoryIdArg,
-    MentionCommand, MentionListArgs, OutputFormatArg, PlanArgs, ReasonArgs, RecallArgs,
-    RelationCommand, RelationListArgs, SchemaCommand, SchemaGetArgs, SchemaListArgs,
+    MentionCommand, MentionListArgs, OutputFormatArg, PlanArgs, PlanStrategyArg, ReasonArgs,
+    RecallArgs, RelationCommand, RelationListArgs, SchemaCommand, SchemaGetArgs, SchemaListArgs,
     SchemaUploadArgs, SchemaValidateArgs, StatementCommand, StatementListArgs, StatementShowArgs,
     SubscribeArgs, TxnArgs, TxnCommand, UnlinkArgs,
 };

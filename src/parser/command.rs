@@ -4,7 +4,9 @@ use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-use brain_db_sdk::wire::types::{EdgeKindWire, EdgeRequest, ForgetMode, MemoryKindWire};
+use brain_db_sdk::wire::types::{
+    EdgeKindWire, EdgeRequest, ForgetMode, MemoryKindWire, PlanStrategy,
+};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
@@ -687,6 +689,28 @@ impl ForgetModeArg {
     }
 }
 
+/// `PlanStrategy` clap shim. `auto` lets the planner pick; the others
+/// pin a specific search algorithm.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PlanStrategyArg {
+    Auto,
+    AStar,
+    Mcts,
+    AttractorRollout,
+}
+
+impl PlanStrategyArg {
+    #[must_use]
+    pub fn into_wire(self) -> PlanStrategy {
+        match self {
+            PlanStrategyArg::Auto => PlanStrategy::Auto,
+            PlanStrategyArg::AStar => PlanStrategy::AStar,
+            PlanStrategyArg::Mcts => PlanStrategy::Mcts,
+            PlanStrategyArg::AttractorRollout => PlanStrategy::AttractorRollout,
+        }
+    }
+}
+
 // ─── per-subcommand argument structs ────────────────────────────
 
 #[derive(Debug, Args, Clone)]
@@ -879,6 +903,18 @@ pub struct PlanArgs {
     /// Wall-time budget in milliseconds.
     #[arg(long, default_value_t = 5_000u32)]
     pub max_wall_time_ms: u32,
+    /// Max branches the search may explore before giving up.
+    #[arg(long, default_value_t = 256u32)]
+    pub max_branches: u32,
+    /// Search strategy. `auto` lets the planner choose.
+    #[arg(long, value_enum)]
+    pub strategy: Option<PlanStrategyArg>,
+    /// Repeatable: restrict the search to these context ids.
+    #[arg(long = "filter-context")]
+    pub filter_context: Vec<u64>,
+    /// Bind to an active transaction (hex bytes).
+    #[arg(long)]
+    pub txn: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -894,6 +930,15 @@ pub struct ReasonArgs {
     /// Max inferences to return.
     #[arg(long, default_value_t = 16u32)]
     pub max_inferences: u32,
+    /// Wall-time budget in milliseconds.
+    #[arg(long = "budget-wall-time-ms", default_value_t = 5_000u32)]
+    pub budget_wall_time_ms: u32,
+    /// Repeatable: restrict reasoning to these context ids.
+    #[arg(long = "filter-context")]
+    pub filter_context: Vec<u64>,
+    /// Bind to an active transaction (hex bytes).
+    #[arg(long)]
+    pub txn: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]
@@ -903,6 +948,9 @@ pub struct ForgetArgs {
     /// Soft tombstone vs hard erase.
     #[arg(long, value_enum, default_value_t = ForgetModeArg::Soft)]
     pub mode: ForgetModeArg,
+    /// Bind to an active transaction (hex bytes).
+    #[arg(long)]
+    pub txn: Option<String>,
 }
 
 #[derive(Debug, Args, Clone)]

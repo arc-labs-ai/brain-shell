@@ -9,23 +9,28 @@ use brain_db_sdk::error::BrainError;
 use brain_db_sdk::wire::types::{PlanBudget, PlanRequest, PlanState};
 use brain_db_sdk::BrainClient;
 
-use crate::parser::PlanArgs;
+use crate::parser::{parse_txn_id, PlanArgs};
 use crate::render::PlanSteps;
 use crate::session::Session;
 
 use super::Rendered;
-
-/// Default branch-exploration budget. PLAN's wire budget requires it but
-/// the shell exposes only `--max-steps` / `--max-wall-time-ms`; this is a
-/// generous ceiling that lets those two be the operator-facing knobs.
-const DEFAULT_MAX_BRANCHES: u32 = 256;
 
 pub async fn run(
     client: &BrainClient,
     session: &mut Session,
     args: PlanArgs,
 ) -> Result<Rendered, BrainError> {
-    let txn = session.effective_txn(None);
+    let explicit_txn = match args.txn.as_deref() {
+        Some(s) => Some(parse_txn_id(s).map_err(client_side)?),
+        None => None,
+    };
+    let txn = session.effective_txn(explicit_txn);
+
+    let context_filter = if args.filter_context.is_empty() {
+        None
+    } else {
+        Some(args.filter_context.clone())
+    };
 
     let request = PlanRequest {
         start: PlanState::ByText(args.from),
@@ -33,10 +38,10 @@ pub async fn run(
         budget: PlanBudget {
             max_steps: args.max_steps,
             max_wall_time_ms: args.max_wall_time_ms,
-            max_branches_explored: DEFAULT_MAX_BRANCHES,
+            max_branches_explored: args.max_branches,
         },
-        strategy_hint: None,
-        context_filter: None,
+        strategy_hint: args.strategy.map(|s| s.into_wire()),
+        context_filter,
         request_id: Some(brain_db_sdk::new_id()),
         txn_id: txn,
     };
@@ -51,4 +56,10 @@ pub async fn run(
         }
     }
     Ok(Box::new(PlanSteps { steps, status }))
+}
+
+/// Wrap a shell-side validation failure as a `BrainError` the dispatch
+/// loop renders as a client-side error card.
+fn client_side(message: String) -> BrainError {
+    BrainError::Protocol(message)
 }

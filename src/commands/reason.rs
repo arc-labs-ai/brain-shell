@@ -8,36 +8,46 @@ use brain_db_sdk::error::BrainError;
 use brain_db_sdk::wire::types::{ObservationInput, ReasonRequest};
 use brain_db_sdk::BrainClient;
 
-use crate::parser::ReasonArgs;
+use crate::parser::{parse_txn_id, ReasonArgs};
 use crate::render::ReasonSteps;
 use crate::session::Session;
 
 use super::Rendered;
-
-/// Wall-time budget for a reasoning run, in milliseconds. The shell
-/// exposes depth / confidence / max-inferences as the operator knobs;
-/// the wire still requires a wall-time ceiling, so we apply a sane
-/// default the way `plan` does for its branch budget.
-const DEFAULT_BUDGET_WALL_TIME_MS: u32 = 5_000;
 
 pub async fn run(
     client: &BrainClient,
     session: &mut Session,
     args: ReasonArgs,
 ) -> Result<Rendered, BrainError> {
-    let txn = session.effective_txn(None);
+    let explicit_txn = match args.txn.as_deref() {
+        Some(s) => Some(parse_txn_id(s).map_err(client_side)?),
+        None => None,
+    };
+    let txn = session.effective_txn(explicit_txn);
+
+    let context_filter = if args.filter_context.is_empty() {
+        None
+    } else {
+        Some(args.filter_context.clone())
+    };
 
     let request = ReasonRequest {
         observation: ObservationInput::ByText(args.observation),
         depth: args.depth,
         confidence_threshold: args.confidence,
-        context_filter: None,
+        context_filter,
         max_inferences: args.max_inferences,
-        budget_wall_time_ms: DEFAULT_BUDGET_WALL_TIME_MS,
+        budget_wall_time_ms: args.budget_wall_time_ms,
         request_id: Some(brain_db_sdk::new_id()),
         txn_id: txn,
     };
 
     let inferences = client.reason(&request).await?;
     Ok(Box::new(ReasonSteps(inferences)))
+}
+
+/// Wrap a shell-side validation failure as a `BrainError` the dispatch
+/// loop renders as a client-side error card.
+fn client_side(message: String) -> BrainError {
+    BrainError::Protocol(message)
 }
