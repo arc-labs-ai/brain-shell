@@ -36,7 +36,6 @@ const SUBCOMMANDS: &[&str] = &[
     "relation",
     "mention",
     "schema",
-    "extract",
 ];
 
 const FLAGS: &[&str] = &[
