@@ -6,6 +6,11 @@ rust-version = "1.75"
 description = "Interactive client (psql/redis-cli equivalent) for the Brain memory database. A thin UI over brain-db-sdk."
 license = "Apache-2.0"
 repository = "https://github.com/brain-db-io/brain-shell"
+homepage = "https://github.com/brain-db-io/brain-shell"
+documentation = "https://docs.rs/brain-shell"
+readme = "README.md"
+keywords = ["brain", "memory", "ai-agents", "cli", "repl"]
+categories = ["command-line-utilities", "database", "api-bindings"]
 
 [lib]
 name = "brain_shell"
