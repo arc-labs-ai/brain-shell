@@ -128,6 +128,12 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
 
     let timeout = Duration::from_secs(cli.global.timeout);
 
+    // Bearer token: `--token` flag, else `BRAIN_TOKEN` (clap merges the
+    // two). An empty value is treated as "no token" so an unset env var
+    // expanded into `--token ""` connects anonymously rather than sending
+    // empty credentials.
+    let token = cli.global.token.clone().filter(|t| !t.is_empty());
+
     // Output format: per-invocation flag > persisted setting > `Auto`.
     let output_format = cli.global.output.clone().unwrap_or(match settings.output {
         Some(crate::cli::config::OutputPref::Json) => OutputFormatArg::Json,
@@ -135,7 +141,7 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
         None => OutputFormatArg::Auto,
     });
 
-    let client = match connection::connect(addr, agent_id, timeout).await {
+    let client = match connection::connect(addr, agent_id, timeout, token.as_deref()).await {
         Ok(c) => c,
         Err(e) => {
             eprintln!("connect failed: {e}");
@@ -144,10 +150,13 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     };
 
     let mut session = Session::from_settings(addr, output_format, &settings);
+    session.authenticated = token.is_some();
 
     // ── bare `brain` / `brain shell` → launch the interactive REPL ─
     if matches!(cli.subcommand, None | Some(Command::Shell)) {
-        return match crate::repl::run_loop(session, client, typed_agent_id, agent_source).await {
+        return match crate::repl::run_loop(session, client, typed_agent_id, agent_source, token)
+            .await
+        {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("error: {e}");

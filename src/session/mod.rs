@@ -37,6 +37,11 @@ pub struct Session {
     /// from the resolved `--agent` / `BRAIN_AGENT` plumbing; live
     /// `\agent use <name>` reassignment goes through the REPL.
     pub sticky_agent: Option<AgentId>,
+    /// Whether the connection presented a bearer token (`--token` /
+    /// `BRAIN_TOKEN`). Surfaced by `\info`; the token value itself is
+    /// deliberately *not* stored here (this struct is `Clone + Debug`),
+    /// it lives only as a loop-local in the REPL entry point.
+    pub authenticated: bool,
 }
 
 impl Session {
@@ -51,6 +56,7 @@ impl Session {
             timing: false,
             server,
             sticky_agent: None,
+            authenticated: false,
         }
     }
 
@@ -74,6 +80,7 @@ impl Session {
             timing: settings.timing.unwrap_or(false),
             server,
             sticky_agent: None,
+            authenticated: false,
         }
     }
 

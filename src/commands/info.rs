@@ -58,7 +58,7 @@ pub fn collect(
     };
 
     let connection = ConnectionInfo {
-        authenticated: true,
+        authenticated: session.authenticated,
         connected_at_unix_nanos: None,
     };
 

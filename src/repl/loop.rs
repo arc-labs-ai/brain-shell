@@ -27,6 +27,10 @@ pub async fn run(
     mut client: BrainClient,
     agent_id: AgentId,
     agent_source: AgentIdSource,
+    // Bearer token (if any) the initial connection used. Kept as a
+    // loop-local — not in `Session` — so the secret stays out of a
+    // `Clone + Debug` struct; reused verbatim on `\connect` reconnect.
+    auth_token: Option<String>,
 ) -> anyhow::Result<()> {
     let (mut ed, history_path) = editor::build(session.recent_ids.clone())?;
 
@@ -64,7 +68,16 @@ pub async fn run(
         }
 
         if let Some(action) = parse_meta(trimmed) {
-            if handle_meta(action, &mut session, &mut client, agent_id, &agent_source).await {
+            if handle_meta(
+                action,
+                &mut session,
+                &mut client,
+                agent_id,
+                &agent_source,
+                auth_token.as_deref(),
+            )
+            .await
+            {
                 break;
             }
             continue;
@@ -437,6 +450,7 @@ async fn handle_meta(
     client: &mut BrainClient,
     agent_id: AgentId,
     agent_source: &AgentIdSource,
+    auth_token: Option<&str>,
 ) -> bool {
     match meta {
         Meta::Quit => true,
@@ -485,6 +499,7 @@ async fn handle_meta(
                         addr,
                         effective_agent.to_bytes(),
                         Duration::from_secs(30),
+                        auth_token,
                     )
                     .await
                     {

@@ -12,14 +12,25 @@ use brain_db_sdk::error::BrainError;
 use brain_db_sdk::{Auth, BrainClient, ClientConfig};
 
 /// Connect to `addr` as `agent_id`, with a per-request `timeout`.
+///
+/// When `token` is a non-empty string the shell authenticates with
+/// `Token` auth; otherwise it connects anonymously (the server decides
+/// whether to allow that). A wrong/absent token makes
+/// `BrainClient::connect_with` return an auth error rather than silently
+/// falling back to anonymous.
 pub async fn connect(
     addr: SocketAddr,
     agent_id: [u8; 16],
     timeout: Duration,
+    token: Option<&str>,
 ) -> Result<BrainClient, BrainError> {
+    let auth = match token {
+        Some(t) if !t.is_empty() => Auth::Token(t.as_bytes().to_vec()),
+        _ => Auth::Anonymous,
+    };
     let config = ClientConfig {
         agent_id,
-        auth: Auth::Anonymous,
+        auth,
         request_timeout: Some(timeout),
         ..ClientConfig::default()
     };

@@ -178,6 +178,16 @@ fn global_output_flag_recognised() {
 }
 
 #[test]
+fn global_token_flag_is_captured() {
+    // Regression guard: `--token` must reach `global.token` (it was once
+    // parsed-and-ignored). The connect path turns a non-empty value into
+    // Token auth. An explicit flag overrides the `BRAIN_TOKEN` env, so
+    // this assertion is independent of the ambient environment.
+    let cli = parse_argv(&["--token", "s3cret", "recall", "q"]);
+    assert_eq!(cli.global.token.as_deref(), Some("s3cret"));
+}
+
+#[test]
 fn repl_line_tokenises_and_parses() {
     // `encode "hello world" --context 7` typed at the REPL.
     let toks = tokenize_line(r#"encode "hello world" --context 7"#).expect("tokenize");

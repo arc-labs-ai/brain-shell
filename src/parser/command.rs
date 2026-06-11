@@ -75,8 +75,11 @@ pub struct GlobalOpts {
     #[arg(long, global = true, value_enum, default_value_t = HyperlinkMode::Auto)]
     pub hyperlinks: HyperlinkMode,
 
-    /// Reserved for v2 auth. Parsed and ignored in v1.
-    #[arg(long, global = true)]
+    /// Bearer token for authentication. Falls back to the `BRAIN_TOKEN`
+    /// environment variable. When set, the shell authenticates with
+    /// `Token` auth; otherwise it connects anonymously (accepted only by
+    /// servers configured to allow it).
+    #[arg(long, global = true, env = "BRAIN_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
 
     /// Print help. Routed through the unified `HelpVerb` card
