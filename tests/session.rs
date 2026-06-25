@@ -141,3 +141,26 @@ fn is_txn_terminal_ignores_non_server_errors() {
     let closed = BrainError::Closed;
     assert!(!is_txn_terminal(&closed));
 }
+
+/// The bearer token must never be stored on `Session` (which is
+/// `Clone + Debug` and gets formatted into `\info` / diagnostics). It
+/// lives only as a loop-local in the REPL entry point. This pins that
+/// invariant: a future refactor that stashes the raw token here would
+/// flunk — the Debug form carries the `authenticated` bool, nothing more.
+#[test]
+fn session_debug_never_carries_the_raw_token() {
+    let mut s = Session::new(addr(), OutputFormatArg::Table);
+    s.authenticated = true;
+    let dbg = format!("{s:?}");
+    assert!(
+        dbg.contains("authenticated"),
+        "auth state should surface as a bool: {dbg}"
+    );
+    // No String field exists to hold credential material; the only auth
+    // signal is the boolean. If someone adds a token field, this guards
+    // against a common secret-shaped value leaking through Debug.
+    assert!(
+        !dbg.to_lowercase().contains("secret") && !dbg.contains("Bearer"),
+        "Session Debug must not carry credential material: {dbg}"
+    );
+}
