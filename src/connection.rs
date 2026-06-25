@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 
 use brain_db_sdk::error::BrainError;
+use brain_db_sdk::retry::{RetryPolicy, RetryStep};
 use brain_db_sdk::{Auth, BrainClient, ClientConfig};
 
 /// Connect to `addr` as `agent_id`, with a per-request `timeout`.
@@ -35,4 +36,46 @@ pub async fn connect(
         ..ClientConfig::default()
     };
     BrainClient::connect_with(addr, config).await
+}
+
+/// Connect with bounded retry on transient transport failures.
+///
+/// A REPL/tool dying because the server was a second late to accept (just
+/// restarted, briefly overloaded) is the #1 papercut, so the initial connect
+/// retries on retryable errors (I/O drop, timeout, server `Unavailable` /
+/// `ResourceExhausted`) per `policy`. Non-retryable failures — a bad token
+/// (auth) or a version mismatch — fail fast, since retrying can't fix them. A
+/// one-line notice goes to stderr before each wait so an interactive user sees
+/// the tool is waiting, not hung.
+pub async fn connect_with_retry(
+    addr: SocketAddr,
+    agent_id: [u8; 16],
+    timeout: Duration,
+    token: Option<&str>,
+    policy: &RetryPolicy,
+) -> Result<BrainClient, BrainError> {
+    let mut attempt: u32 = 1;
+    loop {
+        match connect(addr, agent_id, timeout, token).await {
+            Ok(client) => return Ok(client),
+            Err(err) => match policy.step(attempt, &err) {
+                RetryStep::Retry(delay) => {
+                    match delay {
+                        Some(d) => {
+                            eprintln!(
+                                "connect to {addr} failed ({err}); retrying in {:.1}s …",
+                                d.as_secs_f32()
+                            );
+                            tokio::time::sleep(d).await;
+                        }
+                        None => {
+                            eprintln!("connect to {addr} failed ({err}); retrying …");
+                        }
+                    }
+                    attempt += 1;
+                }
+                RetryStep::GiveUp => return Err(err),
+            },
+        }
+    }
 }

@@ -25,6 +25,7 @@ pub mod cli;
 pub mod commands;
 pub mod connection;
 pub mod core;
+pub mod exit;
 pub mod parser;
 pub mod render;
 pub mod repl;

@@ -141,11 +141,23 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
         None => OutputFormatArg::Auto,
     });
 
-    let client = match connection::connect(addr, agent_id, timeout, token.as_deref()).await {
+    // Bounded retry on the initial connect so a just-restarted / briefly
+    // overloaded server doesn't make the tool fail outright; auth / version
+    // errors still fail fast. Exit code reflects the failure class.
+    let connect_policy = brain_db_sdk::retry::RetryPolicy::default();
+    let client = match connection::connect_with_retry(
+        addr,
+        agent_id,
+        timeout,
+        token.as_deref(),
+        &connect_policy,
+    )
+    .await
+    {
         Ok(c) => c,
         Err(e) => {
             eprintln!("connect failed: {e}");
-            return ExitCode::from(1);
+            return ExitCode::from(crate::exit::for_error(&e));
         }
     };
 
@@ -235,7 +247,7 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
             if crate::render::dispatch(&rendered, &ctx, &mut stderr).is_err() {
                 eprintln!("error: {e}");
             }
-            ExitCode::from(1)
+            ExitCode::from(crate::exit::for_error(&e))
         }
     }
 }
