@@ -149,7 +149,15 @@ pub async fn run(
                         );
                     }
                     Some(cmd) => {
-                        run_one(&client, &mut session, cmd, &cli.global).await;
+                        run_one(
+                            &mut client,
+                            &mut session,
+                            cmd,
+                            &cli.global,
+                            agent_id,
+                            auth_token.as_deref(),
+                        )
+                        .await;
                     }
                 }
             }
@@ -164,10 +172,12 @@ pub async fn run(
 }
 
 async fn run_one(
-    client: &BrainClient,
+    client: &mut BrainClient,
     session: &mut Session,
     cmd: Command,
     globals: &crate::parser::GlobalOpts,
+    agent_id: AgentId,
+    auth_token: Option<&str>,
 ) {
     let started = Instant::now();
     let inherited_active_txn = inherits_active_txn(&cmd);
@@ -196,6 +206,14 @@ async fn run_one(
                         }
                     }
                     render_error(&e, globals, session);
+                    // A transport drop (server restart / network blip) leaves the
+                    // held connection dead — every later command would fail until
+                    // it's rebuilt. Re-establish it now so the REPL stays usable.
+                    // Deliberately NOT an auto-retry: a write may have landed
+                    // before the drop, so the user re-runs on purpose.
+                    if is_connection_dead(&e) {
+                        reconnect(client, session, agent_id, auth_token).await;
+                    }
                 }
             }
         }
@@ -207,6 +225,50 @@ async fn run_one(
             // before this point; reaching here means a future variant
             // wasn't routed. Surface it rather than silently dropping.
             eprintln!("(this command is handled outside the verb dispatcher)");
+        }
+    }
+}
+
+/// A transport-level drop (vs a structured server error). On these the held
+/// connection is dead and every further command fails until it's rebuilt, so
+/// the REPL re-establishes it. A `Server` error or a `Timeout` does NOT count:
+/// the socket is still good, and a timeout may have mutated state server-side.
+fn is_connection_dead(err: &BrainError) -> bool {
+    matches!(err, BrainError::Io(_) | BrainError::Closed)
+}
+
+/// Re-establish the connection in place after a drop, mirroring `\connect`'s
+/// identity + timeout choices, with bounded retry/backoff. On failure the user
+/// can still reconnect manually via `\connect`.
+async fn reconnect(
+    client: &mut BrainClient,
+    session: &mut Session,
+    agent_id: AgentId,
+    auth_token: Option<&str>,
+) {
+    // `\agent use` rebinds identity for the rest of the session; honor it on a
+    // reconnect just as `\connect` does.
+    let effective = session.sticky_agent.unwrap_or(agent_id);
+    eprintln!("connection to {} lost; reconnecting…", session.server);
+    let policy = brain_db_sdk::retry::RetryPolicy::default();
+    match connection::connect_with_retry(
+        session.server,
+        effective.to_bytes(),
+        Duration::from_secs(30),
+        auth_token,
+        &policy,
+    )
+    .await
+    {
+        Ok(new_client) => {
+            *client = new_client;
+            eprintln!("reconnected to {} — re-run your command.", session.server);
+        }
+        Err(e) => {
+            eprintln!(
+                "reconnect failed: {e} — fix the server and run `\\connect {}`",
+                session.server
+            );
         }
     }
 }
@@ -1004,5 +1066,19 @@ mod tests {
         assert!(source_name(&AgentIdSource::IdFlag).is_none());
         assert!(source_name(&AgentIdSource::IdEnv).is_none());
         assert!(source_name(&AgentIdSource::Ephemeral).is_none());
+    }
+
+    #[test]
+    fn dead_connection_only_for_transport_drops() {
+        assert!(is_connection_dead(&BrainError::Closed));
+        assert!(is_connection_dead(&BrainError::Io(std::io::Error::other(
+            "reset"
+        ))));
+        // A timeout may have mutated server state, and a protocol/server error
+        // leaves the socket usable — neither triggers a reconnect.
+        assert!(!is_connection_dead(&BrainError::Timeout(
+            std::time::Duration::from_secs(1)
+        )));
+        assert!(!is_connection_dead(&BrainError::Protocol("x".into())));
     }
 }
