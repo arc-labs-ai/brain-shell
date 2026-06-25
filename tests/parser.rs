@@ -53,7 +53,13 @@ fn one_shot_recall_with_filters() {
 
 #[test]
 fn one_shot_recall_include_text_flag() {
-    let cli = parse_argv(&["recall", "build breakage", "--max-results", "3", "--include-text"]);
+    let cli = parse_argv(&[
+        "recall",
+        "build breakage",
+        "--max-results",
+        "3",
+        "--include-text",
+    ]);
     match cli.subcommand {
         Some(Command::Recall(a)) => {
             assert_eq!(a.query, "build breakage");
