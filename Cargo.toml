@@ -70,6 +70,9 @@ time = { version = "0.3", features = ["formatting", "parsing"] }
 
 [dev-dependencies]
 tempfile = "3"
+# E2E tests drive the real client against an in-process mock server built from
+# the SDK's public wire codec; `net` gives the test its own TcpListener.
+tokio = { version = "1", features = ["net", "rt-multi-thread", "macros", "time", "io-util"] }
 
 # Local co-development override: build against the sibling SDK checkout
 # instead of the crates.io release. Remove (or comment out) to force a

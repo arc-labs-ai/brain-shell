@@ -231,7 +231,7 @@ async fn run_one(
                     // it's rebuilt. Re-establish it now so the REPL stays usable.
                     // Deliberately NOT an auto-retry: a write may have landed
                     // before the drop, so the user re-runs on purpose.
-                    if is_connection_dead(&e) {
+                    if connection::is_dead(&e) {
                         reconnect(client, session, agent_id, auth_token).await;
                     }
                 }
@@ -247,14 +247,6 @@ async fn run_one(
             eprintln!("(this command is handled outside the verb dispatcher)");
         }
     }
-}
-
-/// A transport-level drop (vs a structured server error). On these the held
-/// connection is dead and every further command fails until it's rebuilt, so
-/// the REPL re-establishes it. A `Server` error or a `Timeout` does NOT count:
-/// the socket is still good, and a timeout may have mutated state server-side.
-fn is_connection_dead(err: &BrainError) -> bool {
-    matches!(err, BrainError::Io(_) | BrainError::Closed)
 }
 
 /// Re-establish the connection in place after a drop, mirroring `\connect`'s
@@ -1086,19 +1078,5 @@ mod tests {
         assert!(source_name(&AgentIdSource::IdFlag).is_none());
         assert!(source_name(&AgentIdSource::IdEnv).is_none());
         assert!(source_name(&AgentIdSource::Ephemeral).is_none());
-    }
-
-    #[test]
-    fn dead_connection_only_for_transport_drops() {
-        assert!(is_connection_dead(&BrainError::Closed));
-        assert!(is_connection_dead(&BrainError::Io(std::io::Error::other(
-            "reset"
-        ))));
-        // A timeout may have mutated server state, and a protocol/server error
-        // leaves the socket usable — neither triggers a reconnect.
-        assert!(!is_connection_dead(&BrainError::Timeout(
-            std::time::Duration::from_secs(1)
-        )));
-        assert!(!is_connection_dead(&BrainError::Protocol("x".into())));
     }
 }
