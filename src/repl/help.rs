@@ -55,14 +55,10 @@ fn top_level() -> HelpTopLevel {
                 title: "COGNITIVE VERBS".into(),
                 note: None,
                 items: vec![
-                    item(
-                        "encode",
-                        "<TEXT> [--context N] [--kind K] [--salience F]",
-                        "write a memory",
-                    ),
+                    item("encode", "<TEXT> [--context N]", "write a memory"),
                     item(
                         "recall",
-                        "<QUERY> [--top-k N] [--include-text]",
+                        "<QUERY> [--max-results N] [--include-text]",
                         "find similar memories",
                     ),
                     item("plan", "<FROM> <TO>", "plan a path"),
@@ -203,16 +199,6 @@ fn help_encode() -> HelpVerb {
         ],
         flags: vec![
             row("--context N", "u64; default 0; sticky via \\set context"),
-            row(
-                "--kind K",
-                "episodic | semantic | consolidated (default: episodic)",
-            ),
-            row("--salience F", "[0.0, 1.0]; default 0.5"),
-            row(
-                "--allow-duplicate",
-                "force fresh write; dedup is ON by default",
-            ),
-            row("--edge KIND:ID", "add edge at create time; repeatable"),
             row("--request-id UUID", "idempotency key (24h cache)"),
             row(
                 "--wait",
@@ -230,7 +216,7 @@ fn help_encode() -> HelpVerb {
             row("--from-stdin", "shorthand for --from-file -"),
         ],
         description: vec![
-            "Dedup is on by default — encoding the same text twice in the same (agent, context) returns the existing memory. Pass --allow-duplicate for episodic events where the same content is a genuinely distinct event.".into(),
+            "Memory kind, salience, edges, and near-duplicate consolidation are all decided server-side — the client supplies only the text. Encoding the same text twice in the same (agent, context) collapses to the existing memory automatically.".into(),
             "Inherits the session's sticky --context (set via \\set context N) and active txn (begun via `txn begin`) unless the corresponding flag overrides. The card shows the caller's agent in wide output (`-o wide`).".into(),
         ],
         example: Some(r#"encode "Alice merged the auth-rewrite branch" --context 7"#.into()),
@@ -253,7 +239,10 @@ fn help_recall() -> HelpVerb {
         tagline: "find similar memories".into(),
         usage: vec!["recall <QUERY> [flags]".into()],
         flags: vec![
-            row("--top-k N", "result cap; default 10; server clamps to cap"),
+            row(
+                "--max-results N",
+                "cap on memories returned; default 10; server clamps to cap",
+            ),
             row(
                 "--confidence F",
                 "[0.0, 1.0] threshold compared to `confidence` field; default 0.0 = no filter",
@@ -304,7 +293,7 @@ fn help_recall() -> HelpVerb {
             "When the top-K scores cluster within Δ<0.001 of each other, the table footer warns that ranking may not be meaningful (computed client-side from the response). Typically the embedder isn't loaded (test mode), or the query genuinely doesn't discriminate.".into(),
             "Returned ids are remembered in the session for tab-completion — the next `forget` or `link` can refer to them by short id.".into(),
         ],
-        example: Some(r#"recall "auth rewrite" --top-k 5 --include-text --filter-context 7"#.into()),
+        example: Some(r#"recall "auth rewrite" --max-results 5 --include-text --filter-context 7"#.into()),
         see_also: vec![
             "encode".into(),
             "reason".into(),
@@ -636,10 +625,6 @@ mod tests {
         let card = render_card_table(&help_encode());
         for flag in [
             "--context",
-            "--kind",
-            "--salience",
-            "--allow-duplicate",
-            "--edge",
             "--request-id",
             "--wait",
             "--wait-auto-edges-ms",
@@ -665,7 +650,7 @@ mod tests {
     fn help_recall_lists_every_documented_flag() {
         let card = render_card_table(&help_recall());
         for flag in [
-            "--top-k",
+            "--max-results",
             "--confidence",
             "--salience-floor",
             "--max-age",

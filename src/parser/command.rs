@@ -4,9 +4,7 @@ use std::net::SocketAddr;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-use brain_db_sdk::wire::types::{
-    EdgeKindWire, EdgeRequest, ForgetMode, MemoryKindWire, PlanStrategy,
-};
+use brain_db_sdk::wire::types::{EdgeKindWire, ForgetMode, MemoryKindWire, PlanStrategy};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use clap_complete::Shell;
 
@@ -725,28 +723,9 @@ pub struct EncodeArgs {
     /// Context id (default 0).
     #[arg(long)]
     pub context: Option<u64>,
-    /// Memory kind.
-    #[arg(long, value_enum)]
-    pub kind: Option<KindArg>,
-    /// Salience hint in `[0.0, 1.0]`.
-    #[arg(long)]
-    pub salience: Option<f32>,
-    /// Force a fresh write even when an identical memory already exists
-    /// in this (agent, context). By default `encode` deduplicates by
-    /// content hash — encoding the same text twice returns the existing
-    /// memory rather than creating a duplicate. Pass `--allow-duplicate`
-    /// for episodic memory where the same content really is a second
-    /// distinct event.
-    #[arg(long = "allow-duplicate")]
-    pub allow_duplicate: bool,
     /// Bind to an active transaction (hex bytes).
     #[arg(long)]
     pub txn: Option<String>,
-    /// Inline edge to add at create time, repeatable. Format:
-    /// `<kind>:<target_id>`, e.g. `similar_to:s2/m17/v1`. Kind is one of
-    /// `similar_to`, `derived_from`, `references`, `co_occurs`.
-    #[arg(long = "edge", value_parser = parse_edge_spec)]
-    pub edges: Vec<EdgeSpec>,
     /// Explicit idempotency key. When omitted the SDK mints a fresh
     /// UUID. Pass the same value on a retry to short-circuit to the
     /// cached response.
@@ -777,70 +756,13 @@ pub struct EncodeArgs {
     pub wait_auto_edges_ms: u32,
 }
 
-/// Parsed `--edge <kind>:<target_id>` spec. Lives in the parser layer
-/// so the validation runs at argv-parse time, not when the encode
-/// command is dispatched.
-#[derive(Debug, Clone, Copy)]
-pub struct EdgeSpec {
-    pub kind: EdgeKindArg,
-    pub target: MemoryId,
-    pub weight: f32,
-}
-
-impl EdgeSpec {
-    /// Convert to the wire-protocol shape used by `ENCODE_REQ`.
-    #[must_use]
-    pub fn into_request(self) -> EdgeRequest {
-        EdgeRequest {
-            target: self.target.raw(),
-            kind: self.kind.into_wire(),
-            weight: self.weight,
-        }
-    }
-}
-
-fn parse_edge_spec(s: &str) -> Result<EdgeSpec, String> {
-    let (kind_str, target_str) = s
-        .split_once(':')
-        .ok_or_else(|| format!("expected `<kind>:<target_id>`, got `{s}`"))?;
-    let kind = match kind_str.trim().to_ascii_lowercase().as_str() {
-        "similar_to" | "similar-to" | "similarto" => EdgeKindArg::SimilarTo,
-        "derived_from" | "derived-from" | "derivedfrom" => EdgeKindArg::DerivedFrom,
-        "references" => EdgeKindArg::References,
-        "co_occurs" | "co-occurs" | "cooccurs" => {
-            // Closest substrate edge kind for "co-occurrence" semantics.
-            // The wire enum has no `CoOccurs`; map to SimilarTo so the
-            // shell command surface still accepts the spec'd value.
-            EdgeKindArg::SimilarTo
-        }
-        "caused" => EdgeKindArg::Caused,
-        "followed_by" | "followed-by" | "followedby" => EdgeKindArg::FollowedBy,
-        "contradicts" => EdgeKindArg::Contradicts,
-        "supports" => EdgeKindArg::Supports,
-        "part_of" | "part-of" | "partof" => EdgeKindArg::PartOf,
-        other => {
-            return Err(format!(
-                "unknown edge kind `{other}`. expected one of: similar_to, derived_from, references, co_occurs, caused, followed_by, contradicts, supports, part_of"
-            ));
-        }
-    };
-    let target = MemoryIdArg::from_str(target_str.trim())
-        .map(|m| m.0)
-        .map_err(|e| format!("invalid edge target: {e}"))?;
-    Ok(EdgeSpec {
-        kind,
-        target,
-        weight: 1.0,
-    })
-}
-
 #[derive(Debug, Args, Clone)]
 pub struct RecallArgs {
     /// Cue text.
     pub query: String,
-    /// Result cap.
-    #[arg(long, default_value_t = 10u32)]
-    pub top_k: u32,
+    /// Cap on the number of memories returned.
+    #[arg(long = "max-results", default_value_t = 10u32)]
+    pub max_results: u32,
     /// Confidence threshold `[0.0, 1.0]`.
     #[arg(long, default_value_t = 0.0f32)]
     pub confidence: f32,
@@ -1094,19 +1016,11 @@ mod tests {
 
     #[test]
     fn encode_one_shot_parses() {
-        let cli = parse(&[
-            "encode",
-            "hello world",
-            "--context",
-            "7",
-            "--salience",
-            "0.8",
-        ]);
+        let cli = parse(&["encode", "hello world", "--context", "7"]);
         match cli.subcommand {
             Some(Command::Encode(args)) => {
                 assert_eq!(args.text.as_deref(), Some("hello world"));
                 assert_eq!(args.context, Some(7));
-                assert_eq!(args.salience, Some(0.8));
             }
             other => panic!("expected Encode, got {other:?}"),
         }
@@ -1117,7 +1031,7 @@ mod tests {
         let cli = parse(&[
             "recall",
             "auth",
-            "--top-k",
+            "--max-results",
             "5",
             "--filter-context",
             "1",
@@ -1130,7 +1044,7 @@ mod tests {
         ]);
         match cli.subcommand {
             Some(Command::Recall(args)) => {
-                assert_eq!(args.top_k, 5);
+                assert_eq!(args.max_results, 5);
                 assert_eq!(args.filter_context, vec![1, 2]);
                 assert_eq!(args.filter_kind, vec![KindArg::Episodic, KindArg::Semantic]);
                 // Agent scoping defaults to caller isolation.

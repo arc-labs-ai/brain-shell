@@ -12,25 +12,14 @@ fn parse_argv(argv: &[&str]) -> Cli {
 }
 
 #[test]
-fn one_shot_encode_with_all_flags() {
-    let cli = parse_argv(&[
-        "encode",
-        "hello world",
-        "--context",
-        "7",
-        "--kind",
-        "semantic",
-        "--salience",
-        "0.8",
-        "--allow-duplicate",
-    ]);
+fn one_shot_encode_with_flags() {
+    // Memory kind, salience, edges, and dedup are server-internal; the only
+    // encode knobs are text + routing metadata.
+    let cli = parse_argv(&["encode", "hello world", "--context", "7"]);
     match cli.subcommand {
         Some(Command::Encode(a)) => {
             assert_eq!(a.text.as_deref(), Some("hello world"));
             assert_eq!(a.context, Some(7));
-            assert_eq!(a.kind, Some(KindArg::Semantic));
-            assert_eq!(a.salience, Some(0.8));
-            assert!(a.allow_duplicate);
         }
         other => panic!("expected Encode, got {other:?}"),
     }
@@ -41,7 +30,7 @@ fn one_shot_recall_with_filters() {
     let cli = parse_argv(&[
         "recall",
         "auth rewrite",
-        "--top-k",
+        "--max-results",
         "5",
         "--filter-context",
         "1",
@@ -53,7 +42,7 @@ fn one_shot_recall_with_filters() {
     match cli.subcommand {
         Some(Command::Recall(a)) => {
             assert_eq!(a.query, "auth rewrite");
-            assert_eq!(a.top_k, 5);
+            assert_eq!(a.max_results, 5);
             assert_eq!(a.filter_context, vec![1u64, 2]);
             assert_eq!(a.filter_kind, vec![KindArg::Episodic]);
             assert!(!a.include_text);
@@ -64,11 +53,11 @@ fn one_shot_recall_with_filters() {
 
 #[test]
 fn one_shot_recall_include_text_flag() {
-    let cli = parse_argv(&["recall", "build breakage", "--top-k", "3", "--include-text"]);
+    let cli = parse_argv(&["recall", "build breakage", "--max-results", "3", "--include-text"]);
     match cli.subcommand {
         Some(Command::Recall(a)) => {
             assert_eq!(a.query, "build breakage");
-            assert_eq!(a.top_k, 3);
+            assert_eq!(a.max_results, 3);
             assert!(a.include_text);
         }
         other => panic!("expected Recall, got {other:?}"),
@@ -206,8 +195,8 @@ fn repl_line_tokenises_and_parses() {
 #[test]
 fn round_trip_one_shot_and_repl_identical() {
     // Same conceptual command via two paths produces equivalent Cli values.
-    let one_shot = parse_argv(&["recall", "x", "--top-k", "3"]);
-    let toks = tokenize_line(r#"recall "x" --top-k 3"#).unwrap();
+    let one_shot = parse_argv(&["recall", "x", "--max-results", "3"]);
+    let toks = tokenize_line(r#"recall "x" --max-results 3"#).unwrap();
     let mut argv = vec!["brain".to_string()];
     argv.extend(toks);
     let repl_side = Cli::try_parse_from(argv).expect("parse");
@@ -216,19 +205,19 @@ fn round_trip_one_shot_and_repl_identical() {
         other => panic!("unexpected: {other:?}"),
     };
     assert_eq!(a.query, b.query);
-    assert_eq!(a.top_k, b.top_k);
+    assert_eq!(a.max_results, b.max_results);
 }
 
 #[test]
 fn tokenise_handles_quoted_with_spaces() {
-    let toks = tokenize_line(r#"recall "two words" --top-k 5"#).unwrap();
-    assert_eq!(toks, vec!["recall", "two words", "--top-k", "5"]);
+    let toks = tokenize_line(r#"recall "two words" --max-results 5"#).unwrap();
+    assert_eq!(toks, vec!["recall", "two words", "--max-results", "5"]);
 }
 
 #[test]
 fn tokenise_escape_sequences() {
-    let toks = tokenize_line(r#"encode "tab\there" --salience 0.5"#).unwrap();
-    assert_eq!(toks, vec!["encode", "tab\there", "--salience", "0.5"]);
+    let toks = tokenize_line(r#"encode "tab\there" --context 5"#).unwrap();
+    assert_eq!(toks, vec!["encode", "tab\there", "--context", "5"]);
 }
 
 #[test]

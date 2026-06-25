@@ -18,7 +18,7 @@ use crate::session::Session;
 
 use super::Rendered;
 
-/// Send a `RECALL`, collecting all frames into a `Vec<MemoryResult>`.
+/// Send a `RECALL` and render the memories the smart router returned.
 /// Pushes every returned id onto the session's recent-id list.
 pub async fn run(
     client: &BrainClient,
@@ -62,10 +62,13 @@ pub async fn run(
 
     let request = RecallRequest {
         cue_text: args.query,
-        top_k: args.top_k,
+        // Empty subject: the server resolves subject + relation from the cue.
+        subject_name: String::new(),
+        max_results: args.max_results,
         confidence_threshold: args.confidence,
         context_filter,
         age_bound_unix_nanos,
+        as_of_record_time_unix_nanos: None,
         kind_filter,
         salience_floor: args.salience_floor,
         include_edges: args.include_edges,
@@ -77,12 +80,14 @@ pub async fn run(
         include_other_agents: args.include_other_agents,
     };
 
-    let results = client.recall(&request).await?;
-    for r in &results {
-        session.push_recent_id(MemoryId::from_raw(r.memory_id));
+    // The smart router returns the memories it chose; `answer_kind` is an
+    // internal shape signal the shell renders as a memory list.
+    let answer = client.recall(&request).await?;
+    for m in answer.memories() {
+        session.push_recent_id(MemoryId::from_raw(m.memory_id));
     }
 
-    Ok(Box::new(RecallResults(results)))
+    Ok(Box::new(RecallResults(answer.memories)))
 }
 
 /// Parse an agent-id string into a raw 16-byte wire id. Accepts the

@@ -51,26 +51,15 @@ pub async fn run(
     let txn = session.effective_txn(explicit_txn);
     let context_id = session.effective_context(args.context);
 
-    // Deduplication is on by default — encoding the same text twice in the
-    // same (agent, context) returns the existing memory, not a duplicate.
-    // `--allow-duplicate` is the explicit opt-out for episodic memory.
-    let deduplicate = !args.allow_duplicate;
-
-    let kind = args
-        .kind
-        .map(|k| k.into_wire())
-        .unwrap_or(brain_db_sdk::wire::types::MemoryKindWire::Semantic);
-    let edges = args.edges.iter().map(|e| e.into_request()).collect();
-
+    // Memory kind, salience, edges, and near-duplicate consolidation are all
+    // decided server-side — the client supplies only the text and routing
+    // metadata. There is no client knob for any of them.
     let request = EncodeRequest {
         text: text.clone(),
         context_id,
-        kind,
-        salience_hint: args.salience.unwrap_or(0.5),
-        edges,
         request_id: request_id.map(RequestId::to_bytes).unwrap_or_else(new_id),
         txn_id: txn,
-        deduplicate,
+        occurred_at_unix_nanos: None,
     };
 
     let resp: EncodeResponse = client.encode(&request).await?;

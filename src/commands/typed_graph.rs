@@ -44,6 +44,10 @@ pub fn kind_label(kind: StatementKindWire) -> &'static str {
         StatementKindWire::Fact => "Fact",
         StatementKindWire::Preference => "Preference",
         StatementKindWire::Event => "Event",
+        StatementKindWire::Attribute => "Attribute",
+        StatementKindWire::Relation => "Relation",
+        StatementKindWire::Directive => "Directive",
+        StatementKindWire::Custom(_) => "Custom",
     }
 }
 

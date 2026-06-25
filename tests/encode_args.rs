@@ -1,8 +1,9 @@
-//! `encode` flag parsing: `--edge`, `--request-id`, `--from-file`,
-//! `--from-stdin`, `--wait`, `--allow-duplicate`. Verifies parse,
-//! plus the mutual-exclusivity matrix clap enforces.
+//! `encode` flag parsing: `--request-id`, `--from-file`, `--from-stdin`,
+//! `--wait`. Verifies parse, plus the mutual-exclusivity matrix clap
+//! enforces. Memory kind, salience, edges, and dedup are server-internal
+//! now — those flags are gone and must be rejected.
 
-use brain_shell::parser::{Cli, Command, EdgeKindArg};
+use brain_shell::parser::{Cli, Command};
 use clap::Parser;
 
 fn parse(argv: &[&str]) -> Result<Cli, clap::Error> {
@@ -16,21 +17,22 @@ fn parse_ok(argv: &[&str]) -> Cli {
 }
 
 #[test]
-fn encode_with_inline_edges() {
-    let cli = parse_ok(&[
-        "encode",
-        "hello",
-        "--edge",
-        "similar_to:s2/m17/v1",
-        "--edge",
-        "references:s2/m5/v1",
-    ]);
-    let Some(Command::Encode(a)) = cli.subcommand else {
-        panic!("expected Encode")
-    };
-    assert_eq!(a.edges.len(), 2);
-    assert_eq!(a.edges[0].kind, EdgeKindArg::SimilarTo);
-    assert_eq!(a.edges[1].kind, EdgeKindArg::References);
+fn encode_edge_flag_is_removed() {
+    // Edges are derived server-side; the encode-time `--edge` flag is gone.
+    // Use the `link` verb for explicit edges.
+    let err = parse(&["encode", "hello", "--edge", "similar_to:s2/m17/v1"]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unexpected") || msg.contains("unrecognized") || msg.contains("--edge"),
+        "--edge must be unknown to clap, got: {msg}"
+    );
+}
+
+#[test]
+fn encode_kind_and_salience_flags_are_removed() {
+    // Memory kind and salience are decided server-side now.
+    assert!(parse(&["encode", "hello", "--kind", "semantic"]).is_err());
+    assert!(parse(&["encode", "hello", "--salience", "0.8"]).is_err());
 }
 
 #[test]
@@ -110,49 +112,12 @@ fn encode_legacy_wait_for_extraction_flag_rejected() {
 }
 
 #[test]
-fn encode_dedup_is_on_by_default() {
-    // Without --allow-duplicate, deduplication is ON. The CLI struct
-    // exposes the opt-out; the handler converts to the wire bool.
-    let cli = parse_ok(&["encode", "hello world that is plenty long enough"]);
-    let Some(Command::Encode(a)) = cli.subcommand else {
-        panic!("expected Encode")
-    };
-    assert!(
-        !a.allow_duplicate,
-        "default should be allow_duplicate=false (dedup on)"
-    );
-}
-
-#[test]
-fn encode_allow_duplicate_flag_parses() {
-    let cli = parse_ok(&[
-        "encode",
-        "hello world that is plenty long enough",
-        "--allow-duplicate",
-    ]);
-    let Some(Command::Encode(a)) = cli.subcommand else {
-        panic!("expected Encode")
-    };
-    assert!(a.allow_duplicate);
-}
-
-#[test]
-fn encode_legacy_deduplicate_flag_rejected() {
-    // No compat shim: the old --deduplicate / --no-dedup flags are gone.
+fn encode_dedup_flags_are_removed() {
+    // Near-duplicate consolidation is automatic and server-internal; the
+    // client has no dedup knob. All former dedup flags must be rejected.
+    assert!(parse(&["encode", "hello", "--allow-duplicate"]).is_err());
     assert!(parse(&["encode", "hello", "--deduplicate"]).is_err());
     assert!(parse(&["encode", "hello", "--no-dedup"]).is_err());
-}
-
-#[test]
-fn edge_spec_rejects_unknown_kind() {
-    let err = parse(&["encode", "hello", "--edge", "foo:s2/m1/v1"]).unwrap_err();
-    assert!(err.to_string().contains("unknown edge kind"), "{err}");
-}
-
-#[test]
-fn edge_spec_rejects_missing_colon() {
-    let err = parse(&["encode", "hello", "--edge", "similar_to_s2_m1_v1"]).unwrap_err();
-    assert!(err.to_string().contains("expected"), "got: {err}");
 }
 
 #[test]
