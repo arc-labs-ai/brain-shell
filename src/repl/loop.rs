@@ -615,7 +615,7 @@ async fn handle_meta(
             false
         }
         Meta::Caps => {
-            print_caps(client);
+            print_caps(client).await;
             false
         }
         Meta::Unknown(s) => {
@@ -625,11 +625,15 @@ async fn handle_meta(
     }
 }
 
-/// `\caps` — capabilities from the handshake snapshot. The SDK has no
-/// live GET_CAPABILITIES verb yet, so we render the permissions +
-/// server features the server granted at connect time and label the
-/// source so the operator knows it's cached, not freshly queried.
-fn print_caps(client: &BrainClient) {
+/// `\caps` — two views the operator cares about.
+///
+/// The first block is the per-agent grant + transport limits captured at
+/// connect time (the handshake snapshot, always available). The second block
+/// is the shard's *live* capability state — reranker, extractor tiers, active
+/// schema namespaces, embedding dim — fetched fresh via GET_CAPABILITIES. The
+/// live query can fail on a dead socket; we report that and still show the
+/// cached handshake half rather than printing nothing.
+async fn print_caps(client: &BrainClient) {
     let session = client.session();
     let perms = &session.permissions;
     let features = &session.server_features;
@@ -649,6 +653,30 @@ fn print_caps(client: &BrainClient) {
         features.max_concurrent_streams
     );
     println!("  idle_timeout_seconds = {}", features.idle_timeout_seconds);
+
+    match client
+        .capabilities(&brain_db_sdk::wire::types::GetCapabilitiesRequest {})
+        .await
+    {
+        Ok(resp) => {
+            let c = resp.capabilities;
+            let namespaces = if c.schema_namespaces.is_empty() {
+                "(none — brain system namespace only)".to_string()
+            } else {
+                c.schema_namespaces.join(", ")
+            };
+            println!("capabilities (live)");
+            println!("  rerank               = {}", c.rerank);
+            println!("  pattern_extractor    = {}", c.pattern_extractor);
+            println!("  classifier_extractor = {}", c.classifier_extractor);
+            println!("  llm_extractor        = {}", c.llm_extractor);
+            println!("  vector_dim           = {}", c.vector_dim);
+            println!("  schema_namespaces    = {namespaces}");
+        }
+        Err(e) => {
+            eprintln!("capabilities (live): query failed: {e}");
+        }
+    }
 }
 
 fn handle_agent_sub(sub: AgentSub, session: &mut Session, agent_source: &AgentIdSource) {
