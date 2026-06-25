@@ -16,7 +16,9 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, HelloPayload, ServerFeatures, WelcomePayload,
+    AgentPermissions, AuthOkPayload, AuthPayload, EncodeResponse, HelloPayload, MemoryKindWire,
+    ServerFeatures, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload, SubscribeRequest,
+    SubscriptionEvent, UnsubscribeResponse, WelcomePayload,
 };
 use brain_db_sdk::{BrainClient, RecallBuilder};
 use tokio::net::{TcpListener, TcpStream};
@@ -166,4 +168,155 @@ async fn server_drop_surfaces_a_dead_connection_error() {
     );
 
     let _ = server.await;
+}
+
+/// `encode --wait` must round-trip the full post-encode watch: subscribe
+/// replayed from the encode's LSN, collect the queued stage's completion
+/// event, and amend the rendered card with its outcome. This is the only
+/// place the SUBSCRIBE wiring (from_lsn, client-side memory match, early
+/// exit once all queued stages report) is exercised end-to-end.
+#[tokio::test]
+async fn encode_wait_amends_card_with_stage_results() {
+    use brain_db_sdk::wire::opcode::Opcode;
+    use brain_shell::parser::{ColorMode, Command, HyperlinkMode, OutputFormatArg};
+    use clap::Parser;
+
+    const MEMORY_ID: u128 = 0x1234_5678;
+    const ENCODE_LSN: u64 = 99;
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let addr = listener.local_addr().expect("addr");
+
+    let server = tokio::spawn(async move {
+        let (mut sock, _) = listener.accept().await.expect("accept");
+        handshake(&mut sock).await;
+        let mut buf = Vec::new();
+
+        // 1. ENCODE → respond with one queued stage (AutoEdge) + the LSN.
+        let enc = read_frame(&mut sock, &mut buf).await.expect("encode req");
+        assert_eq!(
+            enc.opcode,
+            Opcode::EncodeReq.as_u16(),
+            "expected ENCODE_REQ"
+        );
+        let resp = EncodeResponse {
+            memory_id: MEMORY_ID,
+            was_deduplicated: false,
+            salience: 0.5,
+            auto_edges_added: 0,
+            lsn: ENCODE_LSN,
+            agent_id: [0u8; 16],
+            context_id: 0,
+            kind: MemoryKindWire::Episodic,
+            created_at_unix_nanos: 1,
+            edges_out_count: 0,
+            embedding_model_fp: [0u8; 16],
+            pending_stages: vec![StageKind::AutoEdge],
+            has_active_schema: false,
+        };
+        write_msg(&mut sock, Opcode::EncodeResp, enc.stream_id, &resp).await;
+
+        // 2. SUBSCRIBE → must replay from exactly lsn+1 (the race defense).
+        let sub = read_frame(&mut sock, &mut buf)
+            .await
+            .expect("subscribe req");
+        assert_eq!(
+            sub.opcode,
+            Opcode::SubscribeReq.as_u16(),
+            "expected SUBSCRIBE_REQ"
+        );
+        let sub_req: SubscribeRequest = from_cbor_bytes(&sub.payload).expect("decode subscribe");
+        assert_eq!(
+            sub_req.from_lsn,
+            Some(ENCODE_LSN + 1),
+            "watch must replay from the position right after the encode"
+        );
+
+        // Push the AutoEdge completion for our memory, then EOS the stream.
+        let mut event = stage_event(MEMORY_ID);
+        event.stage_kind = Some(StageKind::AutoEdge);
+        event.stage_outcome = Some(StageOutcome::Ok);
+        event.stage_payload = Some(StagePayload::AutoEdge(StageAutoEdgePayload {
+            edges_written: 2,
+        }));
+        write_msg(&mut sock, Opcode::SubscribeEvent, sub.stream_id, &event).await;
+
+        // 3. UNSUBSCRIBE → ack so the watcher's clean teardown completes.
+        let unsub = read_frame(&mut sock, &mut buf)
+            .await
+            .expect("unsubscribe req");
+        assert_eq!(
+            unsub.opcode,
+            Opcode::UnsubscribeReq.as_u16(),
+            "expected UNSUBSCRIBE_REQ"
+        );
+        let ack = UnsubscribeResponse {
+            target_stream_id: sub.stream_id,
+            final_lsn: ENCODE_LSN + 1,
+        };
+        write_msg(&mut sock, Opcode::UnsubscribeResp, unsub.stream_id, &ack).await;
+
+        // Hold the socket open until the client closes.
+        let _ = read_frame(&mut sock, &mut buf).await;
+    });
+
+    let client = BrainClient::connect(addr).await.expect("connect");
+    let mut session = brain_shell::session::Session::new(addr, OutputFormatArg::Table);
+
+    let cli = brain_shell::parser::Cli::try_parse_from(["brain", "encode", "hello", "--wait"])
+        .expect("parse encode --wait");
+    let args = match cli.subcommand {
+        Some(Command::Encode(a)) => a,
+        other => panic!("expected encode subcommand, got {other:?}"),
+    };
+
+    let rendered = match brain_shell::commands::encode::run(&client, &mut session, args).await {
+        Ok(r) => r,
+        Err(e) => panic!("encode --wait should succeed: {e:?}"),
+    };
+    // The rendered card owns no client reference; drop the client so the
+    // server task's trailing read observes the close and the task ends
+    // (otherwise `server.await` below would deadlock on an idle socket).
+    drop(client);
+
+    // Render the card and confirm the stage amendment landed.
+    let ctx = brain_shell::commands::render_ctx(
+        OutputFormatArg::Table,
+        ColorMode::Never,
+        HyperlinkMode::Never,
+    );
+    let mut out = Vec::new();
+    brain_shell::render::dispatch(&*rendered, &ctx, &mut out).expect("render");
+    let text = String::from_utf8(out).expect("utf8");
+
+    assert!(
+        text.contains("waited") && text.contains("background stages"),
+        "missing wait header: {text}"
+    );
+    assert!(
+        text.contains("auto_edge") && text.contains("2 SimilarTo edges written"),
+        "missing the collected stage outcome: {text}"
+    );
+
+    let _ = server.await;
+}
+
+/// A bare `SUBSCRIBE_EVENT` skeleton for `memory_id`; callers set the
+/// stage fields they care about.
+fn stage_event(memory_id: u128) -> SubscriptionEvent {
+    SubscriptionEvent {
+        event_type: brain_db_sdk::wire::types::EventType::StageCompleted,
+        memory_id,
+        context_id: 0,
+        text: String::new(),
+        kind: MemoryKindWire::Episodic,
+        salience: 0.0,
+        timestamp_unix_nanos: 0,
+        lsn: 100,
+        graph_payload: None,
+        edge_payload: None,
+        stage_kind: None,
+        stage_outcome: None,
+        stage_payload: None,
+    }
 }
