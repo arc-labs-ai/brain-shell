@@ -181,7 +181,27 @@ async fn run_one(
 ) {
     let started = Instant::now();
     let inherited_active_txn = inherits_active_txn(&cmd);
-    match commands::dispatch_command(client, session, cmd).await {
+    // Ctrl-C while a command is in flight cancels just that command and drops
+    // us back at the prompt — it must not kill the whole REPL. (At the prompt,
+    // rustyline gets Ctrl-C as a raw byte; only a *running* command is in cooked
+    // mode where Ctrl-C is a real SIGINT, so this select can't fire spuriously
+    // between commands.) Dropping the dispatch future cancels its mux stream;
+    // the connection stays usable for the next command. `subscribe` is excluded:
+    // its streaming loop owns Ctrl-C (clean unsubscribe) and would otherwise be
+    // pre-empted here.
+    let dispatched = if matches!(cmd, Command::Subscribe(_)) {
+        commands::dispatch_command(client, session, cmd).await
+    } else {
+        tokio::select! {
+            biased;
+            _ = tokio::signal::ctrl_c() => {
+                eprintln!("^C (cancelled)");
+                return;
+            }
+            d = commands::dispatch_command(client, session, cmd) => d,
+        }
+    };
+    match dispatched {
         Dispatched::Ran { result, .. } => {
             let elapsed = started.elapsed();
             let elapsed_ms = if session.timing {

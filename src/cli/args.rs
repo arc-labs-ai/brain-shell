@@ -192,8 +192,25 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
         )))
     } else {
         // Shared verb dispatch — the same wired-verb set + deferral list the
-        // REPL uses, so the two surfaces can't drift.
-        match commands::dispatch_command(&client, &mut session, cmd).await {
+        // REPL uses, so the two surfaces can't drift. Ctrl-C aborts the in-flight
+        // request (dropping the future cancels its stream) and exits 130, the
+        // conventional 128+SIGINT code, rather than leaving the op half-run with
+        // no signal to the caller. `subscribe` is excluded: its streaming loop
+        // owns Ctrl-C (clean unsubscribe), so wrapping it here would pre-empt the
+        // graceful teardown.
+        let dispatched = if matches!(cmd, Command::Subscribe(_)) {
+            commands::dispatch_command(&client, &mut session, cmd).await
+        } else {
+            tokio::select! {
+                biased;
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("^C (interrupted)");
+                    return ExitCode::from(130);
+                }
+                d = commands::dispatch_command(&client, &mut session, cmd) => d,
+            }
+        };
+        match dispatched {
             commands::Dispatched::Ran { result, .. } => result,
             commands::Dispatched::Deferred(verb) => {
                 eprintln!("{verb} is not yet available in this build");
