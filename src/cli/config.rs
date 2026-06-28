@@ -46,8 +46,14 @@ const HEADER: &str = "\
 // Schema
 // ---------------------------------------------------------------------------
 
+/// Top-level config: persistent `[settings]` plus the credential
+/// `[profiles.*]`. Unknown top-level sections are tolerated and dropped
+/// — a config written by a different/older build (e.g. one carrying a
+/// long-gone `[agents.*]` section) must not brick the tool. The stale
+/// section is simply ignored on load and disappears on the next save.
+/// Typos that matter are still caught: `[settings]`/`[profiles.*]` keep
+/// `deny_unknown_fields`, and malformed TOML is still a hard error.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct ConfigFile {
     #[serde(default)]
     pub settings: Settings,
@@ -670,6 +676,27 @@ mod tests {
         let err = Config::load_or_default_at(&path).unwrap_err();
         assert!(matches!(err, ConfigError::Parse { .. }), "got {err:?}");
         assert_eq!(fs::read_to_string(&path).unwrap(), "garbage = ===");
+    }
+
+    #[test]
+    fn unknown_top_level_section_is_ignored_not_an_error() {
+        // A config carrying a long-gone section (the old `[agents.*]`) is
+        // valid TOML but unknown to the current schema. It must NOT brick the
+        // tool — the unknown section is dropped, the known sections load, and
+        // the stale section vanishes on the next save. (No code reads the old
+        // format; serde just ignores the extra table.)
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            "[settings]\nserver = \"10.0.0.1:9090\"\n\n\
+             [agents.work]\nid = \"019e44c6-0000-0000-0000-000000000000\"\nactive = true\n",
+        )
+        .unwrap();
+        let cfg = Config::load_or_default_at(&path).expect("stale section must not error");
+        assert_eq!(cfg.settings().server.as_deref(), Some("10.0.0.1:9090"));
+        assert!(cfg.profiles().is_empty());
     }
 
     // ----- settings -----------------------------------------------
