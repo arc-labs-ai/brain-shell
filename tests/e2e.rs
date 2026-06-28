@@ -20,7 +20,7 @@ use brain_db_sdk::wire::types::{
     ServerFeatures, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload, SubscribeRequest,
     SubscriptionEvent, UnsubscribeResponse, WelcomePayload,
 };
-use brain_db_sdk::{BrainClient, RecallBuilder};
+use brain_db_sdk::{Auth, BrainClient, RecallBuilder};
 use tokio::net::{TcpListener, TcpStream};
 
 /// Read HELLO → write WELCOME, read AUTH → write AUTH_OK. Mirrors the handshake
@@ -45,9 +45,10 @@ async fn handshake(sock: &mut TcpStream) {
     write_msg(sock, Opcode::Welcome, 0, &welcome).await;
 
     let auth_frame = read_frame(sock, &mut buf).await.expect("auth");
-    let auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
+    let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        // The server assigns the agent id; the client no longer sends one.
+        agent_id: [0x11; 16],
         bound_shard_id: 0,
         permissions: AgentPermissions {
             can_encode: true,
@@ -57,6 +58,7 @@ async fn handshake(sock: &mut TcpStream) {
             can_forget: true,
             can_admin: false,
         },
+        namespace: String::new(),
         server_time_unix_nanos: 1,
     };
     write_msg(sock, Opcode::AuthOk, 0, &auth_ok).await;
@@ -90,9 +92,8 @@ async fn connect_with_retry_recovers_from_a_transient_drop() {
     let policy = RetryPolicy::new(5, Duration::from_millis(10), Duration::from_millis(100));
     let result = brain_shell::connection::connect_with_retry(
         addr,
-        [0x11; 16],
         Duration::from_secs(5),
-        None,
+        "test-token",
         &policy,
     )
     .await;
@@ -118,9 +119,8 @@ async fn connect_with_no_retry_fails_on_drop() {
 
     let err = match brain_shell::connection::connect_with_retry(
         addr,
-        [0x22; 16],
         Duration::from_secs(2),
-        None,
+        "test-token",
         &RetryPolicy::none(),
     )
     .await
@@ -155,7 +155,9 @@ async fn server_drop_surfaces_a_dead_connection_error() {
         drop(sock);
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
     let err = client
         .recall(&RecallBuilder::new("anything").build())
         .await
@@ -260,7 +262,9 @@ async fn encode_wait_amends_card_with_stage_results() {
         let _ = read_frame(&mut sock, &mut buf).await;
     });
 
-    let client = BrainClient::connect(addr).await.expect("connect");
+    let client = BrainClient::connect(addr, Auth::Token(b"test-token".to_vec()))
+        .await
+        .expect("connect");
     let mut session = brain_shell::session::Session::new(addr, OutputFormatArg::Table);
 
     let cli = brain_shell::parser::Cli::try_parse_from(["brain", "encode", "hello", "--wait"])

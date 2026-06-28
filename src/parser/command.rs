@@ -43,16 +43,13 @@ pub struct GlobalOpts {
     #[arg(long, global = true, default_value = DEFAULT_SERVER, env = "BRAIN_SERVER")]
     pub server: String,
 
-    /// Named agent (looked up in ~/.config/brain/config.toml). Use
-    /// `brain agent list` to see configured names.
-    // Env-var (BRAIN_AGENT) handling lives in cli::agent::resolve.
-    #[arg(long, global = true)]
-    pub agent: Option<String>,
-
-    /// Raw agent UUID. Bypasses the named-agent lookup entirely.
-    // Env-var (BRAIN_AGENT_ID) handling lives in cli::agent::resolve.
-    #[arg(long, global = true)]
-    pub agent_id: Option<String>,
+    /// Credential profile to connect with (looked up in
+    /// ~/.config/brain/config.toml under `[profiles.<name>]`). Selects
+    /// both the server and the API-key token. Use `brain profile list`
+    /// to see configured names. Falls back to the `BRAIN_PROFILE`
+    /// environment variable.
+    #[arg(long, global = true, env = "BRAIN_PROFILE")]
+    pub profile: Option<String>,
 
     /// Output format. `auto` resolves to table when stdout is a TTY,
     /// ndjson when piped. `-o` is the kubectl-style short alias.
@@ -73,10 +70,10 @@ pub struct GlobalOpts {
     #[arg(long, global = true, value_enum, default_value_t = HyperlinkMode::Auto)]
     pub hyperlinks: HyperlinkMode,
 
-    /// Bearer token for authentication. Falls back to the `BRAIN_TOKEN`
-    /// environment variable. When set, the shell authenticates with
-    /// `Token` auth; otherwise it connects anonymously (accepted only by
-    /// servers configured to allow it).
+    /// API-key token for authentication. Falls back to the `BRAIN_TOKEN`
+    /// environment variable. The token is mandatory unless a profile
+    /// supplies one — there is no anonymous connect. Also the value
+    /// `profile add` stores for the new profile.
     #[arg(long, global = true, env = "BRAIN_TOKEN", hide_env_values = true)]
     pub token: Option<String>,
 
@@ -238,9 +235,9 @@ pub enum Command {
     /// Inspect / mutate persisted shell settings.
     #[command(subcommand)]
     Config(ConfigCommand),
-    /// Manage named agents (list / show / create / rename / delete / import).
+    /// Manage credential profiles (list / show / use / add / remove).
     #[command(subcommand)]
-    Agent(AgentCommand),
+    Profile(ProfileCommand),
     /// Browse entities written by the extractor pipeline.
     #[command(subcommand)]
     Entity(EntityCommand),
@@ -274,7 +271,7 @@ impl Command {
     /// `--help` on a subcommand. Knowledge-layer subcommands return
     /// the parent verb name (`"entity"` etc.) so a single card covers
     /// all of `entity list / show / neighbors`. Variants without a
-    /// per-verb card (`Shell`, `GenerateCompletion`, `Config`, `Agent`)
+    /// per-verb card (`Shell`, `GenerateCompletion`, `Config`, `Profile`)
     /// route to the top-level help.
     #[must_use]
     pub fn verb_name(&self) -> Option<&'static str> {
@@ -291,7 +288,7 @@ impl Command {
             Command::Info => Some("meta"),
             // No per-verb card → caller falls through to top-level help.
             Command::Config(_)
-            | Command::Agent(_)
+            | Command::Profile(_)
             | Command::Entity(_)
             | Command::Statement(_)
             | Command::Relation(_)
@@ -498,38 +495,28 @@ pub enum ConfigCommand {
     Edit,
 }
 
-/// `brain agent <…>` subcommands.
+/// `brain profile <…>` subcommands. Credential profiles pin a server
+/// endpoint and an API-key token; the token is never printed.
+///
+/// `add` reuses the global `--server` / `--token` flags for the new
+/// profile's endpoint and key, so there is exactly one `--server` /
+/// `--token` flag in the tree rather than a colliding per-subcommand
+/// pair.
 #[derive(Debug, Clone, Subcommand)]
-pub enum AgentCommand {
-    /// Table of name / id / created_at / note; `*` marks the agent
-    /// the current invocation would bind to.
+pub enum ProfileCommand {
+    /// Table of name / server; the active profile is marked. Tokens
+    /// are never shown.
     List,
-    /// Full record for a single agent. Omit the name to see what
-    /// the next connect would use.
+    /// Show one profile (server + redacted token). Omit the name to
+    /// show the active profile.
     Show { name: Option<String> },
-    /// Mint a fresh UUIDv7, write the entry, echo the new id.
-    Create {
-        name: String,
-        #[arg(long)]
-        note: Option<String>,
-    },
-    /// Rename an existing entry. Errors if the new name exists.
-    Rename { old: String, new: String },
-    /// Remove an entry. Refuses to delete the agent the current
-    /// invocation is bound to.
-    Delete { name: String },
-    /// Adopt an externally-supplied UUID under a local name (for
-    /// agents shared by teammates).
-    Import {
-        name: String,
-        id: String,
-        #[arg(long)]
-        note: Option<String>,
-    },
-    /// Mark <name> as the file's `default` agent (the factory
-    /// fallback the resolver uses when no `active` is set).
-    /// Doesn't touch `active`.
-    SetDefault { name: String },
+    /// Mark <name> as the sticky active profile (persisted).
+    Use { name: String },
+    /// Add a profile. Supply its endpoint + key via the global
+    /// `--server` and `--token` flags.
+    Add { name: String },
+    /// Remove a profile.
+    Remove { name: String },
 }
 
 /// `MemoryId` parser that accepts three input forms:

@@ -7,13 +7,11 @@ use brain_db_sdk::BrainClient;
 use clap::Parser;
 use rustyline::error::ReadlineError;
 
-use crate::cli::agent::AgentIdSource;
 use crate::cli::config::Config;
 use crate::commands;
 use crate::commands::render_ctx;
 use crate::commands::Dispatched;
 use crate::connection;
-use crate::core::AgentId;
 use crate::parser::tokenize::tokenize_line;
 use crate::parser::{format_txn_id, parse_server, Cli, Command, OutputFormatArg};
 use crate::repl::editor;
@@ -22,21 +20,23 @@ use crate::session::Session;
 
 /// Run the REPL until the user exits. Returns `Ok(())` on clean
 /// shutdown.
+///
+/// `token` is the API-key credential the initial connection used; it is
+/// kept as a mutable loop-local (never on `Session`) so the secret stays
+/// out of a `Clone + Debug` struct, and is reused / swapped on reconnect
+/// (`\connect` and `\profile use`). `profile` is the active credential
+/// profile name, if any.
 pub async fn run(
     mut session: Session,
     mut client: BrainClient,
-    agent_id: AgentId,
-    agent_source: AgentIdSource,
-    // Bearer token (if any) the initial connection used. Kept as a
-    // loop-local — not in `Session` — so the secret stays out of a
-    // `Clone + Debug` struct; reused verbatim on `\connect` reconnect.
-    auth_token: Option<String>,
+    mut token: String,
+    mut profile: Option<String>,
 ) -> anyhow::Result<()> {
     let (mut ed, history_path) = editor::build(session.recent_ids.clone())?;
 
     // Welcome card. Single dispatch through the renderer so the banner
     // picks up the same TermPolicy / Theme the rest of the shell uses.
-    let banner = build_welcome_banner(&session, agent_id, &agent_source);
+    let banner = build_welcome_banner(&session, &client, profile.as_deref());
     let banner_ctx = render_ctx(
         OutputFormatArg::Auto,
         crate::parser::ColorMode::Auto,
@@ -68,16 +68,7 @@ pub async fn run(
         }
 
         if let Some(action) = parse_meta(trimmed) {
-            if handle_meta(
-                action,
-                &mut session,
-                &mut client,
-                agent_id,
-                &agent_source,
-                auth_token.as_deref(),
-            )
-            .await
-            {
+            if handle_meta(action, &mut session, &mut client, &mut token, &mut profile).await {
                 break;
             }
             continue;
@@ -125,8 +116,7 @@ pub async fn run(
                         // Mirror the `\info` meta — the bare verb is here so
                         // users who type `info` (no backslash) get the same
                         // diagnostic instead of a deferral notice.
-                        let card =
-                            commands::info::collect(&client, &session, agent_id, &agent_source);
+                        let card = commands::info::collect(&client, &session, profile.as_deref());
                         let ctx = render_ctx(
                             cli.global
                                 .output
@@ -140,24 +130,16 @@ pub async fn run(
                             eprintln!("output error: {e}");
                         }
                     }
-                    Some(Command::Config(_)) | Some(Command::Agent(_)) => {
-                        // `\config …` / `\agent …` are handled by parse_meta;
+                    Some(Command::Config(_)) | Some(Command::Profile(_)) => {
+                        // `\config …` / `\profile …` are handled by parse_meta;
                         // the clap path only fires if someone typed the bare
                         // verbs inside the REPL. Point them at the meta form.
                         eprintln!(
-                            "use `\\config <subcommand>` or `\\agent <subcommand>` inside the REPL"
+                            "use `\\config <subcommand>` or `\\profile <subcommand>` inside the REPL"
                         );
                     }
                     Some(cmd) => {
-                        run_one(
-                            &mut client,
-                            &mut session,
-                            cmd,
-                            &cli.global,
-                            agent_id,
-                            auth_token.as_deref(),
-                        )
-                        .await;
+                        run_one(&mut client, &mut session, cmd, &cli.global, &token).await;
                     }
                 }
             }
@@ -176,19 +158,14 @@ async fn run_one(
     session: &mut Session,
     cmd: Command,
     globals: &crate::parser::GlobalOpts,
-    agent_id: AgentId,
-    auth_token: Option<&str>,
+    token: &str,
 ) {
     let started = Instant::now();
     let inherited_active_txn = inherits_active_txn(&cmd);
     // Ctrl-C while a command is in flight cancels just that command and drops
-    // us back at the prompt — it must not kill the whole REPL. (At the prompt,
-    // rustyline gets Ctrl-C as a raw byte; only a *running* command is in cooked
-    // mode where Ctrl-C is a real SIGINT, so this select can't fire spuriously
-    // between commands.) Dropping the dispatch future cancels its mux stream;
-    // the connection stays usable for the next command. `subscribe` is excluded:
-    // its streaming loop owns Ctrl-C (clean unsubscribe) and would otherwise be
-    // pre-empted here.
+    // us back at the prompt — it must not kill the whole REPL. Dropping the
+    // dispatch future cancels its mux stream; the connection stays usable for
+    // the next command. `subscribe` is excluded: its streaming loop owns Ctrl-C.
     let dispatched = if matches!(cmd, Command::Subscribe(_)) {
         commands::dispatch_command(client, session, cmd).await
     } else {
@@ -232,7 +209,7 @@ async fn run_one(
                     // Deliberately NOT an auto-retry: a write may have landed
                     // before the drop, so the user re-runs on purpose.
                     if connection::is_dead(&e) {
-                        reconnect(client, session, agent_id, auth_token).await;
+                        reconnect(client, session, token).await;
                     }
                 }
             }
@@ -241,7 +218,7 @@ async fn run_one(
             eprintln!("{verb} is not yet available in this build");
         }
         Dispatched::Handled => {
-            // config / agent / generate-completion / shell are filtered
+            // config / profile / generate-completion / shell are filtered
             // before this point; reaching here means a future variant
             // wasn't routed. Surface it rather than silently dropping.
             eprintln!("(this command is handled outside the verb dispatcher)");
@@ -249,31 +226,20 @@ async fn run_one(
     }
 }
 
-/// Re-establish the connection in place after a drop, mirroring `\connect`'s
-/// identity + timeout choices, with bounded retry/backoff. On failure the user
-/// can still reconnect manually via `\connect`.
-async fn reconnect(
-    client: &mut BrainClient,
-    session: &mut Session,
-    agent_id: AgentId,
-    auth_token: Option<&str>,
-) {
-    // `\agent use` rebinds identity for the rest of the session; honor it on a
-    // reconnect just as `\connect` does.
-    let effective = session.sticky_agent.unwrap_or(agent_id);
+/// Re-establish the connection in place after a drop, reusing the current
+/// credential, with bounded retry/backoff. On failure the user can still
+/// reconnect manually via `\connect`.
+async fn reconnect(client: &mut BrainClient, session: &mut Session, token: &str) {
     eprintln!("connection to {} lost; reconnecting…", session.server);
     let policy = brain_db_sdk::retry::RetryPolicy::default();
-    match connection::connect_with_retry(
-        session.server,
-        effective.to_bytes(),
-        Duration::from_secs(30),
-        auth_token,
-        &policy,
-    )
-    .await
+    match connection::connect_with_retry(session.server, Duration::from_secs(30), token, &policy)
+        .await
     {
         Ok(new_client) => {
             *client = new_client;
+            // A reconnect is a fresh connection; the server re-derives the
+            // tenant namespace, so refresh the cached value for the prompt.
+            session.namespace = client.namespace().to_string();
             eprintln!("reconnected to {} — re-run your command.", session.server);
         }
         Err(e) => {
@@ -286,9 +252,7 @@ async fn reconnect(
 }
 
 /// Render a successful verb result through the same per-line override
-/// discipline the one-shot path uses: per-line clap flags win over the
-/// session-resolved default, and the timing footer only renders for
-/// human-readable formats.
+/// discipline the one-shot path uses.
 fn render_success(
     body: &dyn crate::render::Render,
     globals: &crate::parser::GlobalOpts,
@@ -352,7 +316,7 @@ fn inherits_active_txn(cmd: &Command) -> bool {
         | Command::Subscribe(_)
         | Command::Txn(_)
         | Command::Config(_)
-        | Command::Agent(_)
+        | Command::Profile(_)
         | Command::Shell
         | Command::Info
         | Command::GenerateCompletion(_) => false,
@@ -370,8 +334,9 @@ enum Meta {
     UnsetTxn,
     Timing(bool),
     Connect(String),
-    Agent,
-    AgentSub(AgentSub),
+    Whoami,
+    Profile(ProfileMeta),
+    Namespace,
     ConfigSub(ConfigSub),
     Info,
     Caps,
@@ -379,12 +344,10 @@ enum Meta {
 }
 
 #[derive(Debug)]
-enum AgentSub {
+enum ProfileMeta {
     List,
     Show(Option<String>),
     Use(String),
-    Create { name: String, note: Option<String> },
-    SetDefault(String),
 }
 
 #[derive(Debug)]
@@ -446,12 +409,21 @@ fn parse_meta(line: &str) -> Option<Meta> {
         return Some(Meta::Caps);
     }
 
-    // `\agent` and `\agent <subcommand …>`
-    if lower == "\\agent" {
-        return Some(Meta::Agent);
+    if lower == "\\whoami" {
+        return Some(Meta::Whoami);
     }
-    if let Some(rest) = lower.strip_prefix("\\agent ") {
-        return Some(parse_agent_sub(rest));
+
+    // `\namespace` (alias `\ns`) — read-only: show the server-derived tenant.
+    if lower == "\\namespace" || lower == "\\ns" {
+        return Some(Meta::Namespace);
+    }
+
+    // `\profile` and `\profile <subcommand …>`
+    if lower == "\\profile" {
+        return Some(Meta::Profile(ProfileMeta::List));
+    }
+    if let Some(rest) = lower.strip_prefix("\\profile ") {
+        return Some(parse_profile_sub(rest));
     }
 
     // `\config <subcommand …>`
@@ -481,24 +453,15 @@ fn parse_meta(line: &str) -> Option<Meta> {
     None
 }
 
-fn parse_agent_sub(rest: &str) -> Meta {
+fn parse_profile_sub(rest: &str) -> Meta {
     let parts: Vec<&str> = rest.split_whitespace().collect();
     match parts.as_slice() {
-        ["list"] => Meta::AgentSub(AgentSub::List),
-        ["show"] => Meta::AgentSub(AgentSub::Show(None)),
-        ["show", name] => Meta::AgentSub(AgentSub::Show(Some((*name).to_string()))),
-        ["use", name] => Meta::AgentSub(AgentSub::Use((*name).to_string())),
-        ["create", name] => Meta::AgentSub(AgentSub::Create {
-            name: (*name).to_string(),
-            note: None,
-        }),
-        ["create", name, "--note", note @ ..] => Meta::AgentSub(AgentSub::Create {
-            name: (*name).to_string(),
-            note: Some(note.join(" ")),
-        }),
-        ["set-default", name] => Meta::AgentSub(AgentSub::SetDefault((*name).to_string())),
-        ["set-default"] => Meta::Unknown("\\agent set-default needs <name>".into()),
-        _ => Meta::Unknown(format!("\\agent {rest}")),
+        ["list"] => Meta::Profile(ProfileMeta::List),
+        ["show"] => Meta::Profile(ProfileMeta::Show(None)),
+        ["show", name] => Meta::Profile(ProfileMeta::Show(Some((*name).to_string()))),
+        ["use", name] => Meta::Profile(ProfileMeta::Use((*name).to_string())),
+        ["use"] => Meta::Unknown("\\profile use needs <name>".into()),
+        _ => Meta::Unknown(format!("\\profile {rest}")),
     }
 }
 
@@ -522,9 +485,8 @@ async fn handle_meta(
     meta: Meta,
     session: &mut Session,
     client: &mut BrainClient,
-    agent_id: AgentId,
-    agent_source: &AgentIdSource,
-    auth_token: Option<&str>,
+    token: &mut String,
+    profile: &mut Option<String>,
 ) -> bool {
     match meta {
         Meta::Quit => true,
@@ -565,22 +527,14 @@ async fn handle_meta(
         Meta::Connect(addr_str) => {
             match parse_server(&addr_str) {
                 Ok(addr) => {
-                    // sticky_agent (set via `\agent use`) takes precedence over
-                    // the process-bound agent_id so the rebind actually changes
-                    // the wire identity on reconnect.
-                    let effective_agent = session.sticky_agent.unwrap_or(agent_id);
-                    match connection::connect(
-                        addr,
-                        effective_agent.to_bytes(),
-                        Duration::from_secs(30),
-                        auth_token,
-                    )
-                    .await
-                    {
+                    match connection::connect(addr, Duration::from_secs(30), token).await {
                         Ok(new_client) => {
                             *client = new_client;
                             session.server = addr;
-                            println!("connected to {addr} as {}", effective_agent.0);
+                            // Re-derived by the server from auth on the new
+                            // connection; refresh so the prompt stays accurate.
+                            session.namespace = client.namespace().to_string();
+                            println!("connected to {addr}");
                         }
                         Err(e) => eprintln!("connect failed: {e}"),
                     }
@@ -589,12 +543,24 @@ async fn handle_meta(
             }
             false
         }
-        Meta::Agent => {
-            print_agent_info(&session.output, agent_id, agent_source);
+        Meta::Whoami => {
+            print_whoami(client, profile.as_deref());
             false
         }
-        Meta::AgentSub(sub) => {
-            handle_agent_sub(sub, session, agent_source);
+        Meta::Profile(sub) => {
+            handle_profile_sub(sub, session, client, token, profile).await;
+            false
+        }
+        Meta::Namespace => {
+            // Read-only: the namespace is server-derived from auth; the shell
+            // only reports what the connection resolved to. Empty == the
+            // reserved `brain` system namespace (no tenant).
+            let ns = client.namespace();
+            if ns.is_empty() {
+                println!("system namespace (no tenant)");
+            } else {
+                println!("namespace = {ns}");
+            }
             false
         }
         Meta::ConfigSub(sub) => {
@@ -602,7 +568,7 @@ async fn handle_meta(
             false
         }
         Meta::Info => {
-            let card = commands::info::collect(client, session, agent_id, agent_source);
+            let card = commands::info::collect(client, session, profile.as_deref());
             let ctx = render_ctx(
                 session.output.clone(),
                 crate::parser::ColorMode::Auto,
@@ -625,14 +591,38 @@ async fn handle_meta(
     }
 }
 
+/// `\whoami` — the authoritative, server-resolved identity.
+fn print_whoami(client: &BrainClient, profile: Option<&str>) {
+    let session = client.session();
+    let perms = &session.permissions;
+    let agent_hex: String = client
+        .agent_id()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    println!("agent_id    = {agent_hex}");
+    let ns = client.namespace();
+    if ns.is_empty() {
+        println!("namespace   = (system)");
+    } else {
+        println!("namespace   = {ns}");
+    }
+    println!("profile     = {}", profile.unwrap_or("(token)"));
+    println!("permissions:");
+    println!("  can_encode = {}", perms.can_encode);
+    println!("  can_recall = {}", perms.can_recall);
+    println!("  can_plan   = {}", perms.can_plan);
+    println!("  can_reason = {}", perms.can_reason);
+    println!("  can_forget = {}", perms.can_forget);
+    println!("  can_admin  = {}", perms.can_admin);
+}
+
 /// `\caps` — two views the operator cares about.
 ///
 /// The first block is the per-agent grant + transport limits captured at
 /// connect time (the handshake snapshot, always available). The second block
 /// is the shard's *live* capability state — reranker, extractor tiers, active
-/// schema namespaces, embedding dim — fetched fresh via GET_CAPABILITIES. The
-/// live query can fail on a dead socket; we report that and still show the
-/// cached handshake half rather than printing nothing.
+/// schema namespaces, embedding dim — fetched fresh via GET_CAPABILITIES.
 async fn print_caps(client: &BrainClient) {
     let session = client.session();
     let perms = &session.permissions;
@@ -679,131 +669,111 @@ async fn print_caps(client: &BrainClient) {
     }
 }
 
-fn handle_agent_sub(sub: AgentSub, session: &mut Session, agent_source: &AgentIdSource) {
-    let bound_name = source_name(agent_source);
-    let (mut config, _note) = match Config::load_or_default() {
-        Ok(p) => p,
+/// Handle `\profile` subcommands. `use` switches the live credential and
+/// reconnects; `list` / `show` are read-only and never print a token.
+async fn handle_profile_sub(
+    sub: ProfileMeta,
+    session: &mut Session,
+    client: &mut BrainClient,
+    token: &mut String,
+    profile: &mut Option<String>,
+) {
+    let mut config = match Config::load_or_default() {
+        Ok(c) => c,
         Err(e) => {
             eprintln!("error: {e}");
             return;
         }
     };
     match sub {
-        AgentSub::List => {
-            if config.agents().is_empty() {
-                println!("(no named agents — `\\agent create <name>` to add one)");
+        ProfileMeta::List => {
+            if config.profiles().is_empty() {
+                println!(
+                    "(no profiles — `brain profile add <name> --server <addr> --token <key>`)"
+                );
                 return;
             }
-            println!(
-                "{:<2} {:<16} {:<36} {:<20} NOTE",
-                "", "NAME", "ID", "CREATED"
-            );
-            for (name, entry) in config.agents() {
-                let marker = if Some(name.as_str()) == bound_name.as_deref() {
+            let active = config.active_profile().map(str::to_owned);
+            println!("{:<2} {:<20} SERVER", "", "NAME");
+            for (name, entry) in config.profiles() {
+                let marker = if active.as_deref() == Some(name.as_str()) {
                     "*"
                 } else {
                     " "
                 };
-                println!(
-                    "{marker:<2} {:<16} {:<36} {:<20} {}",
-                    name, entry.id, entry.created_at, entry.note,
-                );
+                println!("{marker:<2} {:<20} {}", name, entry.server);
             }
         }
-        AgentSub::Show(name) => {
-            let resolved = name.or(bound_name);
+        ProfileMeta::Show(name) => {
+            let resolved = name.or_else(|| config.active_profile().map(str::to_owned));
             match resolved {
-                Some(n) => match config.get_agent(&n) {
+                Some(n) => match config.get_profile(&n) {
                     Ok(e) => {
-                        println!("name       = {n}");
-                        println!("id         = {}", e.id);
-                        println!("created_at = {}", e.created_at);
-                        if !e.note.is_empty() {
-                            println!("note       = {}", e.note);
-                        }
+                        println!("name   = {n}");
+                        println!("server = {}", e.server);
+                        // Never print the token; only confirm one is set.
+                        println!("token  = set (••••)");
                     }
                     Err(e) => eprintln!("error: {e}"),
                 },
                 None => {
-                    println!("(no named agent — this invocation is ephemeral)");
+                    println!("(no active profile — `\\profile use <name>` to select one)");
                 }
             }
         }
-        AgentSub::Use(name) => {
-            // Sticky-agent binding. Looks the name up in config, parses
-            // the UUID, stashes it on the session. The reconnect is the
-            // owner of the open Client and lives in the caller — here we
-            // refuse if there's an open transaction (its handle is tied
-            // to the current agent's connection), and otherwise stash
-            // the new id so a follow-up `\connect` (or process restart)
-            // picks it up.
+        ProfileMeta::Use(name) => {
+            // Switching credential reconnects, which drops any server-side
+            // transaction handle tied to the current connection. Refuse while
+            // a txn is open so the user makes the call explicitly.
             if session.active_txn.is_some() {
                 eprintln!(
-                    "error: active transaction prevents agent rebind — \
+                    "error: active transaction prevents a profile switch — \
                      commit or abort first"
                 );
                 return;
             }
-            let entry = match config.get_agent(&name) {
+            let entry = match config.get_profile(&name) {
                 Ok(e) => e.clone(),
                 Err(e) => {
                     eprintln!("error: {e}");
                     return;
                 }
             };
-            match uuid::Uuid::parse_str(&entry.id) {
-                Ok(uuid) => {
-                    session.sticky_agent = Some(AgentId(uuid));
-                    // Persist the switch so the next bare `brain`
-                    // session picks the same agent. Best-effort: if
-                    // the file write fails we keep the in-memory
-                    // sticky_agent so the live session still uses the
-                    // new id; the user sees a note explaining the
-                    // session-vs-disk divergence.
-                    if let Err(e) = config.set_active(&name) {
+            let addr = match parse_server(&entry.server) {
+                Ok(a) => a,
+                Err(e) => {
+                    eprintln!("error: profile '{name}' has an invalid server: {e}");
+                    return;
+                }
+            };
+            match connection::connect(addr, Duration::from_secs(30), &entry.token).await {
+                Ok(new_client) => {
+                    *client = new_client;
+                    session.server = addr;
+                    session.namespace = client.namespace().to_string();
+                    *token = entry.token;
+                    *profile = Some(name.clone());
+                    // Persist the switch so the next bare `brain` resumes here.
+                    if let Err(e) = config
+                        .set_active_profile(&name)
+                        .and_then(|()| config.save())
+                    {
                         eprintln!(
-                            "note: could not persist active flag to config: {e}\n\
+                            "note: could not persist active profile to config: {e}\n\
                              the switch is effective for this session only."
                         );
                     }
-                    println!(
-                        "sticky agent set to '{name}' ({uuid}); reconnect via \
-                         `\\connect <host:port>` to bind the new id on the wire."
-                    );
+                    println!("switched to profile '{name}' — connected to {addr}");
                 }
-                Err(e) => eprintln!("error: agent '{name}' has malformed uuid: {e}"),
-            }
-        }
-        AgentSub::SetDefault(name) => match config.set_default(&name) {
-            Ok(()) => println!("default agent → {name}"),
-            Err(e) => eprintln!("error: {e}"),
-        },
-        AgentSub::Create { name, note } => {
-            // Mirror the CLI's first-create-promotes invariant so the
-            // in-shell create path also keeps the file valid.
-            let promote = if config.agents().is_empty() {
-                crate::cli::config::AgentPromotion::DefaultAndActive
-            } else {
-                crate::cli::config::AgentPromotion::None
-            };
-            match config.create_agent(&name, note.as_deref().unwrap_or(""), promote) {
-                Ok(e) => {
-                    let id = e.id.clone();
-                    if let Err(err) = config.save() {
-                        eprintln!("error: {err}");
-                        return;
-                    }
-                    println!("created agent '{name}' ({id})");
-                }
-                Err(e) => eprintln!("error: {e}"),
+                Err(e) => eprintln!("connect failed for profile '{name}': {e}"),
             }
         }
     }
 }
 
 fn handle_config_sub(sub: ConfigSub, session: &mut Session) {
-    let (mut config, _note) = match Config::load_or_default() {
-        Ok(p) => p,
+    let mut config = match Config::load_or_default() {
+        Ok(c) => c,
         Err(e) => {
             eprintln!("error: {e}");
             return;
@@ -876,142 +846,38 @@ fn apply_setting_to_session(key: &str, value: &str, session: &mut Session) {
                 session.sticky_context = Some(n);
             }
         }
-        _ => {} // `server` and unknown keys: no live-session mirror.
+        _ => {} // `server` / `active_profile` / unknown: no live-session mirror.
     }
 }
 
-// ─── source-aware banner + \agent helpers ───────────────────────
+// ─── banner ──────────────────────────────────────────────────────
 
-/// Build the welcome banner from the resolved agent identity and
-/// session metadata. Renders via the shared `WelcomeBanner` so the
-/// visual matches the encode / info cards.
+/// Build the welcome banner from the server-assigned identity and session
+/// metadata. Renders via the shared `WelcomeBanner` so the visual matches
+/// the encode / info cards.
 fn build_welcome_banner(
     session: &Session,
-    agent_id: AgentId,
-    agent_source: &AgentIdSource,
+    client: &BrainClient,
+    profile: Option<&str>,
 ) -> crate::render::WelcomeBanner {
-    use crate::render::BannerAgentSource as BAS;
-    let agent_name = match agent_source {
-        AgentIdSource::NamedFlag { name, .. }
-        | AgentIdSource::NamedEnv { name, .. }
-        | AgentIdSource::ActiveFromConfig { name, .. }
-        | AgentIdSource::DefaultFromConfig { name, .. }
-        | AgentIdSource::AutoMinted { name, .. } => Some(name.clone()),
-        AgentIdSource::IdFlag | AgentIdSource::IdEnv | AgentIdSource::Ephemeral => None,
-    };
-    let source = match agent_source {
-        AgentIdSource::NamedFlag { name, .. } => BAS::NamedFlag(name.clone()),
-        AgentIdSource::IdFlag => BAS::IdFlag,
-        AgentIdSource::NamedEnv { name, .. } => BAS::NamedEnv(name.clone()),
-        AgentIdSource::IdEnv => BAS::IdEnv,
-        AgentIdSource::ActiveFromConfig { name, file } => BAS::ActiveFromConfig {
-            name: name.clone(),
-            file_display: file.display().to_string(),
-        },
-        AgentIdSource::DefaultFromConfig { name, file } => BAS::DefaultFromConfig {
-            name: name.clone(),
-            file_display: file.display().to_string(),
-        },
-        AgentIdSource::AutoMinted { name, file } => BAS::AutoMinted {
-            name: name.clone(),
-            file_display: file.display().to_string(),
-        },
-        AgentIdSource::Ephemeral => BAS::Ephemeral,
-    };
     crate::render::WelcomeBanner {
         product_name: "brain-shell".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         server_addr: session.server.to_string(),
-        agent_name,
-        agent_id: agent_id.to_bytes(),
-        agent_source: source,
+        agent_id: client.agent_id(),
+        namespace: client.namespace().to_string(),
+        profile: profile.map(str::to_owned),
     }
-}
-
-fn source_label(s: &AgentIdSource) -> String {
-    match s {
-        AgentIdSource::NamedFlag { name, file } => {
-            format!("flag --agent {name} ({})", file.display())
-        }
-        AgentIdSource::IdFlag => "flag --agent-id".into(),
-        AgentIdSource::NamedEnv { name, file } => {
-            format!("env BRAIN_AGENT={name} ({})", file.display())
-        }
-        AgentIdSource::IdEnv => "env BRAIN_AGENT_ID".into(),
-        AgentIdSource::ActiveFromConfig { name, file } => {
-            format!("config active = {name} ({})", file.display())
-        }
-        AgentIdSource::DefaultFromConfig { name, file } => {
-            format!("config default = {name} ({})", file.display())
-        }
-        AgentIdSource::AutoMinted { name, file } => {
-            format!("auto-minted {name} ({})", file.display())
-        }
-        AgentIdSource::Ephemeral => "ephemeral (no config file path available)".into(),
-    }
-}
-
-/// Name (if any) of the agent this session is currently bound to.
-/// Used for the `*` marker in `\agent list` and for `\agent show`
-/// fallback.
-fn source_name(s: &AgentIdSource) -> Option<String> {
-    match s {
-        AgentIdSource::NamedFlag { name, .. }
-        | AgentIdSource::NamedEnv { name, .. }
-        | AgentIdSource::ActiveFromConfig { name, .. }
-        | AgentIdSource::DefaultFromConfig { name, .. }
-        | AgentIdSource::AutoMinted { name, .. } => Some(name.clone()),
-        _ => None,
-    }
-}
-
-/// Render `\agent` (bare) — current binding summary.
-fn print_agent_info(output: &OutputFormatArg, agent_id: AgentId, source: &AgentIdSource) {
-    let human = matches!(
-        output,
-        OutputFormatArg::Auto | OutputFormatArg::Table | OutputFormatArg::Wide
-    );
-    if human {
-        println!("agent_id = {}", agent_id.0);
-        println!("source   = {}", source_label(source));
-        if let Some(name) = source_name(source) {
-            println!("name     = {name}");
-        }
-        return;
-    }
-    let kind = match source {
-        AgentIdSource::NamedFlag { .. } => "named-flag",
-        AgentIdSource::IdFlag => "id-flag",
-        AgentIdSource::NamedEnv { .. } => "named-env",
-        AgentIdSource::IdEnv => "id-env",
-        AgentIdSource::ActiveFromConfig { .. } => "active",
-        AgentIdSource::DefaultFromConfig { .. } => "default",
-        AgentIdSource::AutoMinted { .. } => "auto-minted",
-        AgentIdSource::Ephemeral => "ephemeral",
-    };
-    let name = source_name(source);
-    let body = serde_json::json!({
-        "op": "agent",
-        "result": {
-            "agent_id": agent_id.0.to_string(),
-            "source": kind,
-            "name": name,
-        },
-    });
-    println!("{body}");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    // ----- parse_meta dispatch -----------------------------------
 
     #[test]
-    fn parse_meta_recognises_backslash_agent_bare() {
-        assert!(matches!(parse_meta("\\agent"), Some(Meta::Agent)));
-        assert!(matches!(parse_meta("  \\agent  "), Some(Meta::Agent)));
+    fn parse_meta_recognises_whoami() {
+        assert!(matches!(parse_meta("\\whoami"), Some(Meta::Whoami)));
+        assert!(matches!(parse_meta("  \\whoami  "), Some(Meta::Whoami)));
     }
 
     #[test]
@@ -1020,35 +886,36 @@ mod tests {
     }
 
     #[test]
-    fn parse_meta_recognises_agent_subcommands() {
+    fn parse_meta_recognises_namespace_and_alias() {
+        assert!(matches!(parse_meta("\\namespace"), Some(Meta::Namespace)));
+        assert!(matches!(parse_meta("\\ns"), Some(Meta::Namespace)));
+        assert!(matches!(parse_meta("  \\ns  "), Some(Meta::Namespace)));
+    }
+
+    #[test]
+    fn parse_meta_recognises_profile_bare_and_subcommands() {
         assert!(matches!(
-            parse_meta("\\agent list"),
-            Some(Meta::AgentSub(AgentSub::List))
+            parse_meta("\\profile"),
+            Some(Meta::Profile(ProfileMeta::List))
         ));
-        match parse_meta("\\agent show foo") {
-            Some(Meta::AgentSub(AgentSub::Show(Some(n)))) => assert_eq!(n, "foo"),
+        assert!(matches!(
+            parse_meta("\\profile list"),
+            Some(Meta::Profile(ProfileMeta::List))
+        ));
+        match parse_meta("\\profile show work") {
+            Some(Meta::Profile(ProfileMeta::Show(Some(n)))) => assert_eq!(n, "work"),
             other => panic!("got {other:?}"),
         }
-        match parse_meta("\\agent show") {
-            Some(Meta::AgentSub(AgentSub::Show(None))) => {}
+        match parse_meta("\\profile show") {
+            Some(Meta::Profile(ProfileMeta::Show(None))) => {}
             other => panic!("got {other:?}"),
         }
-        match parse_meta("\\agent use work") {
-            Some(Meta::AgentSub(AgentSub::Use(n))) => assert_eq!(n, "work"),
+        match parse_meta("\\profile use prod") {
+            Some(Meta::Profile(ProfileMeta::Use(n))) => assert_eq!(n, "prod"),
             other => panic!("got {other:?}"),
         }
-        match parse_meta("\\agent create work") {
-            Some(Meta::AgentSub(AgentSub::Create { name, note })) => {
-                assert_eq!(name, "work");
-                assert!(note.is_none());
-            }
-            other => panic!("got {other:?}"),
-        }
-        match parse_meta("\\agent create work --note prod notebook") {
-            Some(Meta::AgentSub(AgentSub::Create { name, note })) => {
-                assert_eq!(name, "work");
-                assert_eq!(note.as_deref(), Some("prod notebook"));
-            }
+        match parse_meta("\\profile use") {
+            Some(Meta::Unknown(s)) => assert!(s.contains("needs <name>")),
             other => panic!("got {other:?}"),
         }
     }
@@ -1082,29 +949,5 @@ mod tests {
             Some(Meta::Unknown(s)) => assert!(s.contains("subcommand")),
             other => panic!("got {other:?}"),
         }
-    }
-
-    // ----- source helpers ----------------------------------------
-
-    #[test]
-    fn source_name_returns_named_variants_only() {
-        let p = PathBuf::from("/x/y");
-        assert_eq!(
-            source_name(&AgentIdSource::NamedFlag {
-                name: "work".into(),
-                file: p.clone(),
-            }),
-            Some("work".to_string())
-        );
-        assert_eq!(
-            source_name(&AgentIdSource::NamedEnv {
-                name: "demo".into(),
-                file: p,
-            }),
-            Some("demo".to_string())
-        );
-        assert!(source_name(&AgentIdSource::IdFlag).is_none());
-        assert!(source_name(&AgentIdSource::IdEnv).is_none());
-        assert!(source_name(&AgentIdSource::Ephemeral).is_none());
     }
 }

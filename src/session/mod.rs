@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 
-use crate::core::{AgentId, MemoryId};
+use crate::core::MemoryId;
 use crate::parser::OutputFormatArg;
 
 /// Default cap on remembered memory ids for `$N` aliases + completion.
@@ -30,18 +30,19 @@ pub struct Session {
     pub output: OutputFormatArg,
     /// Show per-op elapsed wall time.
     pub timing: bool,
-    /// Server endpoint (may change via `\connect`).
+    /// Server endpoint (may change via `\connect` / `\profile use`).
     pub server: SocketAddr,
-    /// Agent the REPL is currently bound to. Reused on reconnect (e.g.
-    /// `\connect`) and surfaced in the prompt. Set by the entry point
-    /// from the resolved `--agent` / `BRAIN_AGENT` plumbing; live
-    /// `\agent use <name>` reassignment goes through the REPL.
-    pub sticky_agent: Option<AgentId>,
-    /// Whether the connection presented a bearer token (`--token` /
-    /// `BRAIN_TOKEN`). Surfaced by `\info`; the token value itself is
-    /// deliberately *not* stored here (this struct is `Clone + Debug`),
-    /// it lives only as a loop-local in the REPL entry point.
+    /// Whether the connection authenticated (always true in practice —
+    /// the shell requires an API-key credential). Surfaced by `\info`;
+    /// the token value itself is deliberately *not* stored here (this
+    /// struct is `Clone + Debug`), it lives only as a loop-local in the
+    /// REPL entry point.
     pub authenticated: bool,
+    /// Tenant namespace the server bound this connection to. Server-derived
+    /// from auth (the client never sends a namespace); captured once after
+    /// connect and refreshed on reconnect. Empty == the reserved `brain`
+    /// system namespace (no tenant). Surfaced in the prompt + `\info`.
+    pub namespace: String,
 }
 
 impl Session {
@@ -55,8 +56,8 @@ impl Session {
             output,
             timing: false,
             server,
-            sticky_agent: None,
             authenticated: false,
+            namespace: String::new(),
         }
     }
 
@@ -79,8 +80,8 @@ impl Session {
             output,
             timing: settings.timing.unwrap_or(false),
             server,
-            sticky_agent: None,
             authenticated: false,
+            namespace: String::new(),
         }
     }
 
@@ -102,10 +103,18 @@ impl Session {
     #[must_use]
     pub fn prompt(&self) -> String {
         let txn_marker = if self.active_txn.is_some() { "*" } else { "" };
-        match self.sticky_context {
-            Some(ctx) => format!("brain{txn_marker}[ctx={ctx}]> "),
-            None => format!("brain{txn_marker}> "),
-        }
+        // `[ns=…]` only renders when a tenant is bound — the system-namespace
+        // (empty) case is the common default and would just clutter the prompt.
+        let ns_seg = if self.namespace.is_empty() {
+            String::new()
+        } else {
+            format!("[ns={}]", self.namespace)
+        };
+        let ctx_seg = match self.sticky_context {
+            Some(ctx) => format!("[ctx={ctx}]"),
+            None => String::new(),
+        };
+        format!("brain{txn_marker}{ns_seg}{ctx_seg}> ")
     }
 
     /// Helper used by op commands: if the caller didn't supply a
@@ -169,6 +178,27 @@ mod tests {
         s.active_txn = Some([0u8; 16]);
         s.sticky_context = Some(7);
         assert_eq!(s.prompt(), "brain*[ctx=7]> ");
+    }
+
+    #[test]
+    fn prompt_with_namespace() {
+        let mut s = Session::new(addr(), OutputFormatArg::Table);
+        s.namespace = "acme".to_string();
+        assert_eq!(s.prompt(), "brain[ns=acme]> ");
+    }
+
+    #[test]
+    fn prompt_with_namespace_and_context() {
+        let mut s = Session::new(addr(), OutputFormatArg::Table);
+        s.namespace = "acme".to_string();
+        s.sticky_context = Some(7);
+        assert_eq!(s.prompt(), "brain[ns=acme][ctx=7]> ");
+    }
+
+    #[test]
+    fn prompt_empty_namespace_is_omitted() {
+        let s = Session::new(addr(), OutputFormatArg::Table);
+        assert!(!s.prompt().contains("ns="));
     }
 
     #[test]

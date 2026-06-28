@@ -3,8 +3,8 @@
 //!
 //! brain-shell is a *consumer* of [`brain_db_sdk`]: the SDK owns the wire
 //! protocol, transport, and verbs; this crate owns the parser, the REPL, the
-//! per-verb command logic, agent identity, and rendering. It never depends on
-//! Brain's internal crates.
+//! per-verb command logic, credential profiles, and rendering. It never
+//! depends on Brain's internal crates.
 //!
 //! # Module map (filled in across the revival phases)
 //!
@@ -12,7 +12,6 @@
 //! - `parser`     — clap `Cli` + tokenizer (one tree for argv and REPL lines).
 //! - `commands`   — one module per verb, returning a uniform renderer.
 //! - `session`    — REPL state across lines (active txn, sticky context, ids).
-//! - `agent`      — identity (name + id, default, auto-mint).
 //! - `repl`       — rustyline editor, completion, event loop.
 //! - `cli`        — one-shot dispatch.
 //! - `render`     — vendored terminal rendering (theme, table, graph, json).

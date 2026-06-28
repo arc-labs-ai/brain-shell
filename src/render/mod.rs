@@ -20,10 +20,10 @@ pub mod util;
 
 pub use format::{dispatch, OutputFormat, Render, RenderCtx};
 pub use render::{
-    AdHocTable, AgentInfo, AuditCard, AutoEdgeSummary, AutoEdgesDelta, BannerAgentSource,
-    ConnectionInfo, EncodeRendered, EntityCard, GraphNode, GraphTree, HelpFlagRow, HelpItem,
-    HelpReference, HelpSection, HelpTopLevel, HelpUnknown, HelpVerb, InfoCard, LinkRendered,
-    MemorySummary, ObjectRef, PlanSteps, ReasonSteps, RecallResults, RelationCard, RelationSummary,
+    AdHocTable, AgentInfo, AuditCard, AutoEdgeSummary, AutoEdgesDelta, ConnectionInfo,
+    EncodeRendered, EntityCard, GraphNode, GraphTree, HelpFlagRow, HelpItem, HelpReference,
+    HelpSection, HelpTopLevel, HelpUnknown, HelpVerb, InfoCard, LinkRendered, MemorySummary,
+    ObjectRef, PlanSteps, ReasonSteps, RecallResults, RelationCard, RelationSummary,
     RenderableError, ServerInfo, ServerWelcomeFields, SessionInfo, StageKindLabel,
     StageOutcomeLabel, StageResult, StageResultsDelta, StatementCard, StatementSummary,
     SubscriptionEventList, SubscriptionEventRendered, TxnAbortRendered, TxnBeginRendered,

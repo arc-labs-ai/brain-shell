@@ -12,7 +12,7 @@ use std::io::{self, Write};
 
 use serde_json::{json, Value};
 
-use crate::render::render::{fmt_time, fmt_time_rfc3339_with_age, fmt_time_with_note, fmt_uuid};
+use crate::render::render::{fmt_time, fmt_time_with_note, fmt_uuid};
 use crate::render::theme::Token;
 use crate::render::{Render, RenderCtx};
 
@@ -56,26 +56,20 @@ pub struct ServerWelcomeFields {
     pub server_push: bool,
 }
 
-/// Resolved agent. brain-shell already does the resolution at session
-/// start; we just reflect what it picked.
-#[derive(Debug, Clone)]
+/// Server-assigned identity for this connection. The agent id and
+/// namespace are derived by the server from the API-key credential; the
+/// shell only reflects them. `profile` is the local credential profile
+/// the connection authenticated through, if any.
+#[derive(Debug, Clone, Default)]
 pub struct AgentInfo {
-    /// `Some` for named sources (config, env, flag with a name);
-    /// `None` for raw-id paths (`--agent-id` / `BRAIN_AGENT_ID`) and
-    /// ephemeral binds where there is no name to display.
-    pub name: Option<String>,
     pub agent_id: [u8; 16],
-    /// Human-readable source label, e.g. `config: active` or
-    /// `--agent flag`. Drives the connect banner too; we mirror its
-    /// wording here so both surfaces agree.
-    pub source_label: String,
-    /// `true` when this agent is the file's `default = true`.
-    /// Surfaces because the factory-fallback identity is worth
-    /// noting in diagnostics — losing your default is a common
-    /// "why did the next session pick a different agent?" gotcha.
-    pub default: bool,
-    pub note: String,
-    pub created_at: Option<String>,
+    /// Server-derived tenant namespace this connection resolved to.
+    /// Empty == the reserved `brain` system namespace (no tenant);
+    /// rendered as `— (system)`. Read-only — the client never sends it.
+    pub namespace: String,
+    /// Local credential profile name the connection used, if any.
+    /// `None` for the bare-token path (no profile name exists).
+    pub profile: Option<String>,
 }
 
 /// SDK connection state. Two values matter: whether the handshake
@@ -158,27 +152,15 @@ impl Render for InfoCard {
 
         // ── Agent ─────────────────────────────────────────────────
         writeln!(w, "{}", theme.paint(Token::Accent, "Agent", policy))?;
-        if let Some(name) = &self.agent.name {
-            write_row(w, theme, policy, "name", name)?;
-        }
         write_row(w, theme, policy, "id", &fmt_uuid(&self.agent.agent_id))?;
-        write_row(w, theme, policy, "source", &self.agent.source_label)?;
-        write_row(
-            w,
-            theme,
-            policy,
-            "default",
-            if self.agent.default { "yes" } else { "no" },
-        )?;
-        if !self.agent.note.is_empty() {
-            write_row(w, theme, policy, "note", &self.agent.note)?;
-        }
-        if let Some(ts) = &self.agent.created_at {
-            // Already RFC3339 from config; append the relative age so
-            // "two years ago" reads at a glance.
-            let formatted = fmt_time_rfc3339_with_age(ts);
-            write_row(w, theme, policy, "created_at", &formatted)?;
-        }
+        let ns_str = if self.agent.namespace.is_empty() {
+            "— (system)".to_string()
+        } else {
+            self.agent.namespace.clone()
+        };
+        write_row(w, theme, policy, "namespace", &ns_str)?;
+        let profile_str = self.agent.profile.as_deref().unwrap_or("— (token)");
+        write_row(w, theme, policy, "profile", profile_str)?;
         writeln!(w)?;
 
         // ── Connection ────────────────────────────────────────────
@@ -240,12 +222,9 @@ impl Render for InfoCard {
                 })),
             },
             "agent": {
-                "name": self.agent.name,
                 "id": fmt_uuid(&self.agent.agent_id),
-                "source": self.agent.source_label,
-                "default": self.agent.default,
-                "note": self.agent.note,
-                "created_at": self.agent.created_at,
+                "namespace": self.agent.namespace,
+                "profile": self.agent.profile,
             },
             "connection": {
                 "authenticated": self.connection.authenticated,
@@ -310,15 +289,12 @@ mod tests {
                 welcome: None,
             },
             agent: AgentInfo {
-                name: Some("agent-01927a8b".into()),
                 agent_id: [
                     0x01, 0x92, 0x7a, 0x8b, 0x4c, 0x2f, 0x70, 0x00, 0x80, 0x00, 0xde, 0xad, 0xbe,
                     0xef, 0xfe, 0xed,
                 ],
-                source_label: "config: active".into(),
-                default: false,
-                note: String::new(),
-                created_at: Some("2026-05-20T02:00:00Z".into()),
+                namespace: String::new(),
+                profile: Some("work".into()),
             },
             connection: ConnectionInfo {
                 authenticated: false,
@@ -384,14 +360,20 @@ mod tests {
     }
 
     #[test]
-    fn render_table_agent_created_at_appends_relative_age() {
-        // baseline() supplies an RFC3339 created_at; ensure the
-        // relative-age clause is appended (operators tracking which
-        // agents have been around longest want this at a glance).
+    fn render_table_shows_active_profile() {
         let out = render(&baseline(), OutputFormat::Table);
+        assert!(out.contains("profile"), "profile row must appear: {out}");
+        assert!(out.contains("work"), "profile name must render: {out}");
+    }
+
+    #[test]
+    fn render_table_token_path_shows_no_profile_marker() {
+        let mut card = baseline();
+        card.agent.profile = None;
+        let out = render(&card, OutputFormat::Table);
         assert!(
-            out.contains("2026-05-20T02:00:00Z ("),
-            "created_at must keep RFC3339 + open paren: {out}"
+            out.contains("— (token)"),
+            "bare-token path renders the no-profile marker: {out}"
         );
     }
 
@@ -402,6 +384,41 @@ mod tests {
             out.contains("01927a8b-4c2f-7000-8000-deadbeeffeed"),
             "agent uuid must render in canonical dashed form: {out}"
         );
+    }
+
+    #[test]
+    fn render_table_empty_namespace_shows_system() {
+        // baseline() leaves namespace empty → system-namespace marker.
+        let out = render(&baseline(), OutputFormat::Table);
+        assert!(
+            out.contains("namespace"),
+            "namespace row must appear: {out}"
+        );
+        assert!(
+            out.contains("— (system)"),
+            "empty namespace renders the system marker: {out}"
+        );
+    }
+
+    #[test]
+    fn render_table_named_namespace_shows_tenant() {
+        let mut card = baseline();
+        card.agent.namespace = "acme".into();
+        let out = render(&card, OutputFormat::Table);
+        assert!(out.contains("acme"), "tenant namespace must render: {out}");
+        assert!(
+            !out.contains("— (system)"),
+            "named namespace must not show the system marker: {out}"
+        );
+    }
+
+    #[test]
+    fn render_json_includes_namespace() {
+        let mut card = baseline();
+        card.agent.namespace = "acme".into();
+        let out = render(&card, OutputFormat::Json);
+        let v: Value = serde_json::from_str(&out).expect("parse json");
+        assert_eq!(v["agent"]["namespace"], "acme");
     }
 
     #[test]

@@ -29,7 +29,7 @@ pub mod txn;
 
 pub use adhoc::AdHocTable;
 pub use audit_card::{AuditCard, TierOutcome};
-pub use banner::{BannerAgentSource, WelcomeBanner};
+pub use banner::WelcomeBanner;
 pub use encode::{
     AutoEdgeSummary, AutoEdgesDelta, EncodeRendered, StageKindLabel, StageOutcomeLabel,
     StageResult, StageResultsDelta,

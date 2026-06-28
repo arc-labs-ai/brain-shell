@@ -1,12 +1,17 @@
 //! Top-level argv dispatch — picks between one-shot exec, launching the
 //! interactive REPL, and the connectionless helper subcommands (config /
-//! agent / generate-completion).
+//! profile / generate-completion).
 //!
 //! The three core verbs (encode / recall / forget) run end to end; every
 //! other verb parses but reports that it is not yet wired in this build. A
 //! bare `brain` (or `brain shell`) connects and launches the REPL. One-shot
 //! and REPL share `commands::dispatch_command`, so their wired-verb set and
 //! deferral list can't drift.
+//!
+//! Authentication is mandatory and fail-closed: the shell resolves an
+//! API-key credential before connecting (see [`crate::cli::credential`]).
+//! With no profile, no `--token`, and no `BRAIN_TOKEN`, startup aborts with
+//! a non-zero exit rather than attempting an anonymous connect.
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -14,12 +19,14 @@ use std::time::{Duration, Instant};
 use brain_db_sdk::error::BrainError;
 use clap::{CommandFactory, Parser};
 
-use crate::cli::agent;
-use crate::cli::config::{Config, MigrationNote};
+use crate::cli::config::Config;
+use crate::cli::credential::{self, CredentialInputs};
 use crate::commands;
 use crate::commands::render_ctx;
 use crate::connection;
-use crate::parser::{parse_server, AgentCommand, Cli, Command, ConfigCommand, OutputFormatArg};
+use crate::parser::{
+    parse_server, Cli, Command, ConfigCommand, GlobalOpts, OutputFormatArg, ProfileCommand,
+};
 use crate::session::Session;
 
 /// Entry point used by both `main` and integration tests.
@@ -59,12 +66,8 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     if let Some(Command::Config(c)) = cli.subcommand.clone() {
         return run_config(c);
     }
-    if let Some(Command::Agent(a)) = cli.subcommand.clone() {
-        return run_agent(
-            a,
-            cli.global.agent.as_deref(),
-            cli.global.agent_id.as_deref(),
-        );
+    if let Some(Command::Profile(p)) = cli.subcommand.clone() {
+        return run_profile(p, &cli.global);
     }
 
     // ── verbs not yet ported in this build ─────────────────────────
@@ -81,26 +84,9 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
         }
     }
 
-    // ── agent + settings resolution ────────────────────────────────
-    let resolved = match agent::resolve(cli.global.agent.as_deref(), cli.global.agent_id.as_deref())
-    {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("error: {e}");
-            return ExitCode::from(2);
-        }
-    };
-    if let Some(note) = &resolved.migration {
-        eprint_migration_note(note);
-    }
-    let typed_agent_id = resolved.agent_id;
-    let agent_source = resolved.source;
-    let agent_id = typed_agent_id.to_bytes();
-
-    // Load settings (defaults if file missing). Migration is already
-    // applied by the resolver above, so we don't surface it again here.
+    // Load settings (defaults if file missing).
     let settings_file = match Config::load_or_default() {
-        Ok((c, _)) => c,
+        Ok(c) => c,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(2);
@@ -108,17 +94,32 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     };
     let settings = settings_file.settings().clone();
 
-    // Effective server: per-invocation flag > persisted setting > default.
-    let server_str = settings
-        .server
-        .clone()
-        .unwrap_or_else(|| cli.global.server.clone());
-    let effective_server = if cli.global.server != crate::parser::command::DEFAULT_SERVER {
-        cli.global.server.clone()
+    // ── credential resolution — FAIL-CLOSED ────────────────────────
+    // Resolve (server, token) from --profile / --token / active_profile.
+    // No credential means no connection; abort before dialing.
+    let token = cli.global.token.clone().filter(|t| !t.is_empty());
+    let server_override = if cli.global.server != crate::parser::command::DEFAULT_SERVER {
+        Some(cli.global.server.clone())
     } else {
-        server_str
+        None
     };
-    let addr = match parse_server(&effective_server) {
+    let resolved = match credential::resolve(
+        &settings_file,
+        &CredentialInputs {
+            profile_flag: cli.global.profile.as_deref(),
+            token: token.as_deref(),
+            server_override: server_override.as_deref(),
+        },
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    let profile_name = resolved.source.profile_name().map(str::to_owned);
+
+    let addr = match parse_server(&resolved.server) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{e}");
@@ -127,12 +128,6 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     };
 
     let timeout = Duration::from_secs(cli.global.timeout);
-
-    // Bearer token: `--token` flag, else `BRAIN_TOKEN` (clap merges the
-    // two). An empty value is treated as "no token" so an unset env var
-    // expanded into `--token ""` connects anonymously rather than sending
-    // empty credentials.
-    let token = cli.global.token.clone().filter(|t| !t.is_empty());
 
     // Output format: per-invocation flag > persisted setting > `Auto`.
     let output_format = cli.global.output.clone().unwrap_or(match settings.output {
@@ -145,30 +140,27 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     // overloaded server doesn't make the tool fail outright; auth / version
     // errors still fail fast. Exit code reflects the failure class.
     let connect_policy = brain_db_sdk::retry::RetryPolicy::default();
-    let client = match connection::connect_with_retry(
-        addr,
-        agent_id,
-        timeout,
-        token.as_deref(),
-        &connect_policy,
-    )
-    .await
-    {
-        Ok(c) => c,
-        Err(e) => {
-            eprintln!("connect failed: {e}");
-            return ExitCode::from(crate::exit::for_error(&e));
-        }
-    };
+    let client =
+        match connection::connect_with_retry(addr, timeout, &resolved.token, &connect_policy).await
+        {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("connect failed: {e}");
+                return ExitCode::from(crate::exit::for_error(&e));
+            }
+        };
 
     let mut session = Session::from_settings(addr, output_format, &settings);
-    session.authenticated = token.is_some();
+    // A connection only exists with a token, so the session is always
+    // authenticated past this point.
+    session.authenticated = true;
+    // The server derives the tenant namespace from auth and reports it in the
+    // handshake; capture it for the prompt + `\info`. The client never sends it.
+    session.namespace = client.namespace().to_string();
 
     // ── bare `brain` / `brain shell` → launch the interactive REPL ─
     if matches!(cli.subcommand, None | Some(Command::Shell)) {
-        return match crate::repl::run_loop(session, client, typed_agent_id, agent_source, token)
-            .await
-        {
+        return match crate::repl::run_loop(session, client, resolved.token, profile_name).await {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
                 eprintln!("error: {e}");
@@ -181,14 +173,13 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
 
     let started = Instant::now();
     // `info` is assembled here (not in `dispatch_command`) because the card
-    // needs the resolved agent identity the dispatcher doesn't carry — the
-    // same `info::collect` the REPL's `\info` meta uses. No wire I/O.
+    // needs the resolved identity the dispatcher doesn't carry — the same
+    // `info::collect` the REPL's `\info` meta uses. No wire I/O.
     let res: Result<Box<dyn crate::render::Render>, BrainError> = if matches!(cmd, Command::Info) {
         Ok(Box::new(commands::info::collect(
             &client,
             &session,
-            typed_agent_id,
-            &agent_source,
+            profile_name.as_deref(),
         )))
     } else {
         // Shared verb dispatch — the same wired-verb set + deferral list the
@@ -217,7 +208,7 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
                 return ExitCode::from(2);
             }
             commands::Dispatched::Handled => {
-                unreachable!("config / agent / info / generate-completion handled above")
+                unreachable!("config / profile / info / generate-completion handled above")
             }
         }
     };
@@ -274,16 +265,13 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
 // ---------------------------------------------------------------------------
 
 fn run_config(cmd: ConfigCommand) -> ExitCode {
-    let (mut config, note) = match Config::load_or_default() {
+    let mut config = match Config::load_or_default() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(2);
         }
     };
-    if let Some(n) = &note {
-        eprint_migration_note(n);
-    }
     match cmd {
         ConfigCommand::List => {
             for (k, v) in config.list() {
@@ -347,55 +335,50 @@ fn run_config(cmd: ConfigCommand) -> ExitCode {
 }
 
 // ---------------------------------------------------------------------------
-// brain agent <subcommand>
+// brain profile <subcommand>
 // ---------------------------------------------------------------------------
 
-fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<&str>) -> ExitCode {
-    let (mut config, note) = match Config::load_or_default() {
+/// Connectionless credential-profile management. `add` reuses the global
+/// `--server` / `--token` flags for the new profile's endpoint + key, so
+/// there is one canonical pair of flags in the tree. Tokens are never
+/// printed by any subcommand.
+fn run_profile(cmd: ProfileCommand, globals: &GlobalOpts) -> ExitCode {
+    let mut config = match Config::load_or_default() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("error: {e}");
             return ExitCode::from(2);
         }
     };
-    if let Some(n) = &note {
-        eprint_migration_note(n);
-    }
     match cmd {
-        AgentCommand::List => {
-            let bound_name = resolved_bound_name(agent_flag, agent_id_flag);
-            if config.agents().is_empty() {
-                println!("(no named agents — `brain agent create <name>` to add one)");
+        ProfileCommand::List => {
+            if config.profiles().is_empty() {
+                println!(
+                    "(no profiles — `brain profile add <name> --server <addr> --token <key>`)"
+                );
                 return ExitCode::SUCCESS;
             }
-            println!(
-                "{:<2} {:<16} {:<36} {:<20} NOTE",
-                "", "NAME", "ID", "CREATED"
-            );
-            for (name, entry) in config.agents() {
-                let marker = if Some(name.as_str()) == bound_name.as_deref() {
+            let active = config.active_profile().map(str::to_owned);
+            println!("{:<2} {:<20} SERVER", "", "NAME");
+            for (name, entry) in config.profiles() {
+                let marker = if active.as_deref() == Some(name.as_str()) {
                     "*"
                 } else {
                     " "
                 };
-                println!(
-                    "{marker:<2} {:<16} {:<36} {:<20} {}",
-                    name, entry.id, entry.created_at, entry.note
-                );
+                println!("{marker:<2} {:<20} {}", name, entry.server);
             }
             ExitCode::SUCCESS
         }
-        AgentCommand::Show { name } => {
-            let resolved_name = name.or_else(|| resolved_bound_name(agent_flag, agent_id_flag));
-            match resolved_name {
-                Some(n) => match config.get_agent(&n) {
+        ProfileCommand::Show { name } => {
+            let resolved = name.or_else(|| config.active_profile().map(str::to_owned));
+            match resolved {
+                Some(n) => match config.get_profile(&n) {
                     Ok(e) => {
-                        println!("name       = {n}");
-                        println!("id         = {}", e.id);
-                        println!("created_at = {}", e.created_at);
-                        if !e.note.is_empty() {
-                            println!("note       = {}", e.note);
-                        }
+                        println!("name   = {n}");
+                        println!("server = {}", e.server);
+                        // Never print the token; just confirm one is set.
+                        println!("token  = {}", redact(&e.token));
                         ExitCode::SUCCESS
                     }
                     Err(e) => {
@@ -404,41 +387,15 @@ fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<
                     }
                 },
                 None => {
-                    println!("(no named agent — this invocation would mint an ephemeral one)");
+                    println!("(no active profile — `brain profile use <name>` to select one)");
                     ExitCode::SUCCESS
                 }
             }
         }
-        AgentCommand::Create { name, note } => {
-            let promote = if config.agents().is_empty() {
-                crate::cli::config::AgentPromotion::DefaultAndActive
-            } else {
-                crate::cli::config::AgentPromotion::None
-            };
-            match config.create_agent(&name, note.as_deref().unwrap_or(""), promote) {
-                Ok(entry) => {
-                    let id = entry.id.clone();
-                    match config.save() {
-                        Ok(()) => {
-                            println!("created agent '{name}' ({id})");
-                            ExitCode::SUCCESS
-                        }
-                        Err(e) => {
-                            eprintln!("error: {e}");
-                            ExitCode::from(1)
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::from(2)
-                }
-            }
-        }
-        AgentCommand::Rename { old, new } => match config.rename_agent(&old, &new) {
+        ProfileCommand::Use { name } => match config.set_active_profile(&name) {
             Ok(()) => match config.save() {
                 Ok(()) => {
-                    println!("renamed '{old}' → '{new}'");
+                    println!("active profile → {name}");
                     ExitCode::SUCCESS
                 }
                 Err(e) => {
@@ -451,18 +408,20 @@ fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<
                 ExitCode::from(2)
             }
         },
-        AgentCommand::Delete { name } => {
-            let bound_name = resolved_bound_name(agent_flag, agent_id_flag);
-            if bound_name.as_deref() == Some(name.as_str()) {
-                eprintln!(
-                    "error: refusing to delete '{name}' — the current invocation is bound to it"
-                );
-                return ExitCode::from(2);
-            }
-            match config.delete_agent(&name) {
-                Ok(_) => match config.save() {
+        ProfileCommand::Add { name } => {
+            let token = match globals.token.as_deref().filter(|t| !t.is_empty()) {
+                Some(t) => t,
+                None => {
+                    eprintln!(
+                        "error: `profile add` requires --token (or BRAIN_TOKEN) for the API key"
+                    );
+                    return ExitCode::from(2);
+                }
+            };
+            match config.add_profile(&name, &globals.server, token) {
+                Ok(()) => match config.save() {
                     Ok(()) => {
-                        println!("deleted agent '{name}'");
+                        println!("added profile '{name}' → {}", globals.server);
                         ExitCode::SUCCESS
                     }
                     Err(e) => {
@@ -476,64 +435,31 @@ fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<
                 }
             }
         }
-        AgentCommand::SetDefault { name } => match config.set_default(&name) {
-            Ok(()) => {
-                println!("default agent → {name}");
-                ExitCode::SUCCESS
-            }
+        ProfileCommand::Remove { name } => match config.remove_profile(&name) {
+            Ok(_) => match config.save() {
+                Ok(()) => {
+                    println!("removed profile '{name}'");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(1)
+                }
+            },
             Err(e) => {
                 eprintln!("error: {e}");
                 ExitCode::from(2)
             }
         },
-        AgentCommand::Import { name, id, note } => {
-            let promote = if config.agents().is_empty() {
-                crate::cli::config::AgentPromotion::DefaultAndActive
-            } else {
-                crate::cli::config::AgentPromotion::None
-            };
-            match config.import_agent(&name, &id, note.as_deref().unwrap_or(""), promote) {
-                Ok(_) => match config.save() {
-                    Ok(()) => {
-                        println!("imported agent '{name}' ({id})");
-                        ExitCode::SUCCESS
-                    }
-                    Err(e) => {
-                        eprintln!("error: {e}");
-                        ExitCode::from(1)
-                    }
-                },
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::from(2)
-                }
-            }
-        }
     }
 }
 
-/// Name of the agent this invocation would bind to — for the `*` marker
-/// in `agent list`. Returns `None` when the binding is ephemeral or by
-/// raw id (no name to compare against).
-fn resolved_bound_name(agent_flag: Option<&str>, agent_id_flag: Option<&str>) -> Option<String> {
-    if let Some(n) = agent_flag {
-        return Some(n.to_owned());
+/// Mask a token for display. Reports presence + a short tail so an
+/// operator can tell two profiles apart without exposing the key.
+fn redact(token: &str) -> String {
+    if token.is_empty() {
+        "(unset)".to_string()
+    } else {
+        "set (••••)".to_string()
     }
-    if agent_id_flag.is_some() {
-        return None;
-    }
-    if let Ok(s) = std::env::var(agent::ENV_VAR_NAME) {
-        if !s.is_empty() {
-            return Some(s);
-        }
-    }
-    None
-}
-
-fn eprint_migration_note(note: &MigrationNote) {
-    eprintln!(
-        "note: migrated legacy config.toml to named-agent schema (entry '{name}'); backup at {path}",
-        name = note.migrated_name,
-        path = note.backup_path.display(),
-    );
 }

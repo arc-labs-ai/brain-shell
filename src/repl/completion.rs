@@ -40,8 +40,8 @@ const SUBCOMMANDS: &[&str] = &[
 
 const FLAGS: &[&str] = &[
     "--server",
-    "--agent",
-    "--agent-id",
+    "--profile",
+    "--token",
     "--output",
     "--timeout",
     "--color",

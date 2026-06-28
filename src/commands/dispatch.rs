@@ -32,7 +32,7 @@ pub enum Dispatched {
 /// Run a parsed [`Command`] against the live `client`, threading session
 /// state. Only `encode` / `recall` / `forget` touch the wire; every
 /// other verb returns [`Dispatched::Deferred`] with the same human name
-/// both surfaces print. `config` / `agent` / `generate-completion` /
+/// both surfaces print. `config` / `profile` / `generate-completion` /
 /// `shell` are caller-owned and come back as [`Dispatched::Handled`].
 pub async fn dispatch_command(
     client: &BrainClient,
@@ -121,12 +121,12 @@ pub async fn dispatch_command(
             result: commands::subscribe::run(client, session, a).await,
         },
         Command::Config(_)
-        | Command::Agent(_)
+        | Command::Profile(_)
         | Command::GenerateCompletion(_)
-        // `info` is built from cached state + the resolved agent identity,
-        // which the dispatcher doesn't carry — both the CLI and the REPL
-        // assemble it at the call site, so it's caller-owned like config /
-        // agent / shell.
+        // `info` is built from cached state + the resolved identity, which
+        // the dispatcher doesn't carry — both the CLI and the REPL assemble
+        // it at the call site, so it's caller-owned like config / profile /
+        // shell.
         | Command::Info
         | Command::Shell => Dispatched::Handled,
         other => Dispatched::Deferred(
@@ -137,14 +137,14 @@ pub async fn dispatch_command(
 
 /// Human-facing verb name for a parser variant that isn't wired in this
 /// build. Returns `None` for the wired verbs (encode / recall / forget)
-/// and the caller-owned subcommands (config / agent / generate-completion
+/// and the caller-owned subcommands (config / profile / generate-completion
 /// / shell).
 #[must_use]
 pub fn deferred_verb_name(cmd: &Command) -> Option<&'static str> {
     match cmd {
         Command::Encode(_) | Command::Recall(_) | Command::Forget(_) => None,
         Command::Config(_)
-        | Command::Agent(_)
+        | Command::Profile(_)
         | Command::GenerateCompletion(_)
         | Command::Shell => None,
         // link / unlink / plan / reason / txn / subscribe are wired.

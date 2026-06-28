@@ -11,7 +11,7 @@
 //!   * the Reference block's `<verb> --help` pointer MUST resolve
 //!     (i.e. the verb is one our lookup function recognises)
 //!
-//! Globals (`--server`, `--agent`, `-o`, `--color`, etc.) are
+//! Globals (`--server`, `--profile`, `-o`, `--color`, etc.) are
 //! intentionally not enumerated per-verb on the card — they're shared
 //! across all verbs and a future "Globals" card or top-level help can
 //! own them.

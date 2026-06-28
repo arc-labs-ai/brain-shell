@@ -1,28 +1,23 @@
 //! `\info` (REPL) / bare `info` verb — a diagnostic snapshot.
 //!
 //! Builds the [`InfoCard`] from the SDK's cached handshake
-//! (`client.session()`), the resolved agent identity, and the live shell
-//! session. No live request is issued: every field comes from state the
-//! shell already holds, so the card answers "what's my current state?"
-//! without a round trip.
+//! (`client.session()`), the server-assigned identity, the active
+//! credential profile, and the live shell session. No live request is
+//! issued: every field comes from state the shell already holds, so the
+//! card answers "what's my current state?" without a round trip.
 
 use brain_db_sdk::BrainClient;
 
-use crate::cli::agent::AgentIdSource;
-use crate::core::AgentId;
 use crate::render::{
     AgentInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo,
 };
 use crate::session::Session;
 
 /// Assemble the diagnostic card from cached state. Pure: no wire I/O.
+/// `profile` is the name of the credential profile this connection used,
+/// if any (the bare-token path has no profile name).
 #[must_use]
-pub fn collect(
-    client: &BrainClient,
-    session: &Session,
-    agent_id: AgentId,
-    agent_source: &AgentIdSource,
-) -> InfoCard {
+pub fn collect(client: &BrainClient, session: &Session, profile: Option<&str>) -> InfoCard {
     let snapshot = client.session();
 
     let features = &snapshot.server_features;
@@ -49,12 +44,13 @@ pub fn collect(
     };
 
     let agent = AgentInfo {
-        name: source_name(agent_source),
-        agent_id: agent_id.to_bytes(),
-        source_label: source_label(agent_source),
-        default: matches!(agent_source, AgentIdSource::DefaultFromConfig { .. }),
-        note: String::new(),
-        created_at: None,
+        // Server-assigned agent id, read off the handshake.
+        agent_id: client.agent_id(),
+        // Server-derived tenant namespace; the shell only reflects it
+        // (it never sends a namespace). Empty == system namespace.
+        namespace: client.namespace().to_string(),
+        // The local credential profile in play, if any.
+        profile: profile.map(str::to_owned),
     };
 
     let connection = ConnectionInfo {
@@ -74,41 +70,5 @@ pub fn collect(
         agent,
         connection,
         session: session_info,
-    }
-}
-
-/// Name (if any) of the agent the session is bound to.
-fn source_name(s: &AgentIdSource) -> Option<String> {
-    match s {
-        AgentIdSource::NamedFlag { name, .. }
-        | AgentIdSource::NamedEnv { name, .. }
-        | AgentIdSource::ActiveFromConfig { name, .. }
-        | AgentIdSource::DefaultFromConfig { name, .. }
-        | AgentIdSource::AutoMinted { name, .. } => Some(name.clone()),
-        AgentIdSource::IdFlag | AgentIdSource::IdEnv | AgentIdSource::Ephemeral => None,
-    }
-}
-
-/// Human-readable source label shared with the connect banner.
-fn source_label(s: &AgentIdSource) -> String {
-    match s {
-        AgentIdSource::NamedFlag { name, file } => {
-            format!("flag --agent {name} ({})", file.display())
-        }
-        AgentIdSource::IdFlag => "flag --agent-id".into(),
-        AgentIdSource::NamedEnv { name, file } => {
-            format!("env BRAIN_AGENT={name} ({})", file.display())
-        }
-        AgentIdSource::IdEnv => "env BRAIN_AGENT_ID".into(),
-        AgentIdSource::ActiveFromConfig { name, file } => {
-            format!("config active = {name} ({})", file.display())
-        }
-        AgentIdSource::DefaultFromConfig { name, file } => {
-            format!("config default = {name} ({})", file.display())
-        }
-        AgentIdSource::AutoMinted { name, file } => {
-            format!("auto-minted {name} ({})", file.display())
-        }
-        AgentIdSource::Ephemeral => "ephemeral (no config file path available)".into(),
     }
 }

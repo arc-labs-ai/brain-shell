@@ -121,8 +121,9 @@ fn top_level() -> HelpTopLevel {
                     item("\\set context", "<N>", "session sticky --context"),
                     item("\\unset txn", "", "drop active transaction"),
                     item("\\timing", "on|off", "per-op wall time"),
-                    item("\\connect", "<host:port>", "reconnect"),
-                    item("\\info", "", "server / agent / session diagnostic"),
+                    item("\\connect", "<host:port>", "reconnect (same credential)"),
+                    item("\\info", "", "server / identity / session diagnostic"),
+                    item("\\whoami", "", "server-resolved agent / namespace / perms"),
                 ],
             },
             HelpSection {
@@ -135,21 +136,22 @@ fn top_level() -> HelpTopLevel {
                 )],
             },
             HelpSection {
-                title: "AGENTS".into(),
-                note: None,
+                title: "PROFILES".into(),
+                note: Some("(credential = server + API-key token)".into()),
                 items: vec![
-                    item("\\agent", "", "current binding"),
+                    item("\\profile", "list", "configured profiles (active marked)"),
+                    item("\\profile show", "[<name>]", "server + redacted token"),
+                    item("\\profile use", "<name>", "switch credential + reconnect"),
                     item(
-                        "\\agent",
-                        "list | show [<name>] | use <name> | create <name>",
+                        "\\namespace",
                         "",
+                        "active tenant namespace (read-only; alias \\ns)",
                     ),
-                    item("\\agent set-default", "<name>", "mark as factory default"),
                 ],
             },
         ],
         footer: vec![
-            "Tip: bare `brain` mints a fresh agent on first run.".into(),
+            "Tip: select a credential with --profile, --token, or \\profile use.".into(),
             "Type `help <verb>` for per-verb usage.".into(),
         ],
     }
@@ -516,7 +518,7 @@ fn help_subscribe() -> HelpVerb {
 
 /// META aggregates a directory of meta commands. A single HelpVerb's
 /// usage block keeps it scrollable as one card; the description owns
-/// the categorised body (Session-only / Persisted / Agents) so a
+/// the categorised body (Session-only / Persisted / Profiles) so a
 /// reader sees the same shape they'd see in `\config`. Building a
 /// nested HelpTopLevel here would visually conflict with the per-verb
 /// card framing that `help meta` would otherwise inherit.
@@ -529,18 +531,19 @@ fn help_meta() -> HelpVerb {
             "\\set context <N>              sticky default --context".into(),
             "\\unset txn                    drop the active transaction".into(),
             "\\timing on|off                show per-op wall time".into(),
-            "\\connect <host:port>          reconnect to a different server".into(),
-            "\\info                         server / agent / connection / session diagnostic".into(),
+            "\\connect <host:port>          reconnect with the same credential".into(),
+            "\\info                         server / identity / connection / session diagnostic".into(),
+            "\\whoami                       server-resolved agent id / namespace / permissions".into(),
             "\\config list|get|set|path|edit  manage ~/.config/brain/config.toml".into(),
-            "\\agent                        current binding (id + source)".into(),
-            "\\agent list|show|use|create|set-default  manage named agents".into(),
+            "\\profile list|show|use        manage + switch credential profiles".into(),
+            "\\namespace                    active tenant namespace (read-only; alias \\ns)".into(),
             "\\q                            exit (alias for quit)".into(),
         ],
         flags: vec![],
         sources: vec![],
         description: vec![
-            "Session-only settings (the first block) live until quit. Persisted commands (`\\config set`, `\\agent use`, `\\agent set-default`) write to ~/.config/brain/config.toml and survive across sessions.".into(),
-            "Per-meta-command deep dives live under docs/reference/shell/meta/ — one page per meta verb (agent, config, set, unset, info, timing, connect, help).".into(),
+            "Session-only settings (the first block) live until quit. Persisted commands (`\\config set`, `\\profile use`) write to ~/.config/brain/config.toml and survive across sessions.".into(),
+            "Per-meta-command deep dives live under docs/reference/shell/meta/ — one page per meta verb (profile, config, set, unset, info, whoami, timing, connect, help).".into(),
         ],
         example: Some("\\set output ndjson   →   \\set context 7   →   encode \"...\"".into()),
         see_also: vec![],
@@ -744,7 +747,7 @@ mod tests {
         // reader knows where to find the deep dive for each meta verb.
         assert!(card.contains("docs/reference/shell/meta/"));
         // Usage block keeps the directory of meta commands.
-        for cmd in ["\\set", "\\agent", "\\config", "\\info"] {
+        for cmd in ["\\set", "\\profile", "\\config", "\\info", "\\whoami"] {
             assert!(card.contains(cmd), "missing meta cmd {cmd} in:\n{card}");
         }
     }

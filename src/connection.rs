@@ -12,29 +12,21 @@ use brain_db_sdk::error::BrainError;
 use brain_db_sdk::retry::{RetryPolicy, RetryStep};
 use brain_db_sdk::{Auth, BrainClient, ClientConfig};
 
-/// Connect to `addr` as `agent_id`, with a per-request `timeout`.
+/// Connect to `addr` with the mandatory API-key `token`, applying a
+/// per-request `timeout`.
 ///
-/// When `token` is a non-empty string the shell authenticates with
-/// `Token` auth; otherwise it connects anonymously (the server decides
-/// whether to allow that). A wrong/absent token makes
-/// `BrainClient::connect_with` return an auth error rather than silently
-/// falling back to anonymous.
+/// The token is the connection's whole identity — the server resolves
+/// `(namespace, agent, permissions)` from it and assigns the agent id.
+/// There is no anonymous connect; a wrong/revoked key makes the
+/// handshake return a server auth error rather than degrading silently.
 pub async fn connect(
     addr: SocketAddr,
-    agent_id: [u8; 16],
     timeout: Duration,
-    token: Option<&str>,
+    token: &str,
 ) -> Result<BrainClient, BrainError> {
-    let auth = match token {
-        Some(t) if !t.is_empty() => Auth::Token(t.as_bytes().to_vec()),
-        _ => Auth::Anonymous,
-    };
-    let config = ClientConfig {
-        agent_id,
-        auth,
-        request_timeout: Some(timeout),
-        ..ClientConfig::default()
-    };
+    let auth = Auth::Token(token.as_bytes().to_vec());
+    let mut config = ClientConfig::new(auth);
+    config.request_timeout = Some(timeout);
     BrainClient::connect_with(addr, config).await
 }
 
@@ -69,14 +61,13 @@ pub fn is_dead(err: &BrainError) -> bool {
 /// the tool is waiting, not hung.
 pub async fn connect_with_retry(
     addr: SocketAddr,
-    agent_id: [u8; 16],
     timeout: Duration,
-    token: Option<&str>,
+    token: &str,
     policy: &RetryPolicy,
 ) -> Result<BrainClient, BrainError> {
     let mut attempt: u32 = 1;
     loop {
-        match connect(addr, agent_id, timeout, token).await {
+        match connect(addr, timeout, token).await {
             Ok(client) => return Ok(client),
             Err(err) => match policy.step(attempt, &err) {
                 RetryStep::Retry(delay) => {
