@@ -82,7 +82,6 @@ fn top_level() -> HelpTopLevel {
                     item("statement", "list | show <id>", ""),
                     item("relation", "list", ""),
                     item("mention", "list --memory M | --entity E", ""),
-                    item("extract", "status <memory_id> | backfill --memory ...", ""),
                 ],
             },
             HelpSection {
@@ -260,14 +259,6 @@ fn help_recall() -> HelpVerb {
             row(
                 "--filter-context N",
                 "keep results from this context; repeatable, up to 16",
-            ),
-            row(
-                "--filter-agent UUID",
-                "scope recall to these agent ids; repeatable (default: caller isolation)",
-            ),
-            row(
-                "--include-other-agents",
-                "drop caller-agent isolation; recall across every agent's memories",
             ),
             row(
                 "--filter-kind K",

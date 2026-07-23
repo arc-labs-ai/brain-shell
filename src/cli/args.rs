@@ -36,8 +36,8 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
     // flags, so `brain recall --help` would otherwise fail "missing
     // <QUERY>". The pre-scan respects `--` so `brain encode -- --help`
     // (encode the literal text) still works. The rich per-verb help
-    // cards live in the REPL help module (later phase); for now we route
-    // every help request to clap's generated top-level help.
+    // cards live in the REPL help module; the CLI routes every help
+    // request to clap's generated top-level help.
     if crate::parser::detect_help_intent(&argv).is_some() {
         let mut cmd = Cli::command();
         let _ = cmd.print_help();

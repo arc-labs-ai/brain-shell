@@ -37,12 +37,6 @@ pub async fn run(
         Some(args.filter_context.clone())
     };
 
-    let agent_filter = args
-        .filter_agent
-        .iter()
-        .map(|s| parse_agent_id(s))
-        .collect::<Result<Vec<_>, _>>()?;
-
     let kind_filter = if args.filter_kind.is_empty() {
         None
     } else {
@@ -76,8 +70,6 @@ pub async fn run(
         include_text: args.include_text,
         request_id: Some(brain_db_sdk::new_id()),
         txn_id: txn,
-        agent_filter,
-        include_other_agents: args.include_other_agents,
     };
 
     // The smart router returns the memories it chose; `answer_kind` is an
@@ -88,16 +80,6 @@ pub async fn run(
     }
 
     Ok(Box::new(RecallResults(answer.memories)))
-}
-
-/// Parse an agent-id string into a raw 16-byte wire id. Accepts the
-/// hyphenated UUID form (`0191b6f0-1234-7890-abcd-ef0123456789`) and the
-/// bare 32-hex form (`0191b6f012347890abcdef0123456789`).
-fn parse_agent_id(s: &str) -> Result<[u8; 16], BrainError> {
-    let s = s.trim();
-    uuid::Uuid::parse_str(s)
-        .map(|u| *u.as_bytes())
-        .map_err(|e| client_side(format!("invalid --filter-agent value `{s}`: {e}")))
 }
 
 /// Wrap a shell-side validation failure as a `BrainError` the dispatch

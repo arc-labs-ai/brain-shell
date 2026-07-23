@@ -75,8 +75,8 @@ impl Render for RecallResults {
                 format!("sem={:.4}", r.similarity_score),
             ];
             // Owning agent — first 8 hex of the agent uuid. Only shown
-            // when known (non-zero); on a cross-agent recall this is
-            // how the reader tells whose memory each hit is. The zero
+            // when known (non-zero); it labels each hit's owner (the
+            // server stamps every hit with its owning agent). The zero
             // agent is the anonymous owner and adds only noise.
             if r.agent_id != [0u8; 16] {
                 let short_agent: String = fmt_hex_16_bare(&r.agent_id).chars().take(8).collect();

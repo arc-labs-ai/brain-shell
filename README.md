@@ -1,7 +1,7 @@
 # brain-shell
 
 `brain-shell` is an interactive client — a `psql` / `redis-cli` / `mongosh` for
-the [Brain](https://github.com/brain-db-io) memory database. The user-facing
+the [Brain](https://github.com/arc-labs-ai/brain-db) memory database. The user-facing
 command is **`brain`**: run it bare for an interactive REPL, or with a verb for
 one-shot scripting. Both paths share one parser and one dispatch, so they never
 drift.
