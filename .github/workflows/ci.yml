@@ -17,7 +17,8 @@ jobs:
     steps:
       # brain-shell depends on the SDK via a path dep (../brain-sdk/rust),
       # so both repos are checked out as siblings under the workspace.
-      # If brain-sdk is private, add a PAT with read access as `token:`.
+      # brain-sdk is a public repo, so the default GITHUB_TOKEN suffices —
+      # no PAT needed even though brain-shell itself is private.
       - name: Checkout brain-shell
         uses: actions/checkout@v4
         with:
@@ -25,7 +26,7 @@ jobs:
       - name: Checkout brain-sdk (sibling, for the path dep)
         uses: actions/checkout@v4
         with:
-          repository: brain-db-io/brain-sdk
+          repository: arc-labs-ai/brain-sdk
           ref: main
           path: brain-sdk
 
