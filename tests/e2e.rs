@@ -16,7 +16,7 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    AgentPermissions, AuthOkPayload, AuthPayload, EncodeResponse, HelloPayload, MemoryKindWire,
+    SpacePermissions, AuthOkPayload, AuthPayload, EncodeResponse, HelloPayload, MemoryKindWire,
     ServerFeatures, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload, SubscribeRequest,
     SubscriptionEvent, UnsubscribeResponse, WelcomePayload,
 };
@@ -33,7 +33,7 @@ async fn handshake(sock: &mut TcpStream) {
     let welcome = WelcomePayload {
         server_id: "mock-brain".into(),
         chosen_version: 1,
-        session_id: [0xAB; 16],
+        connection_id: [0xAB; 16],
         capabilities: hello.capabilities,
         server_features: ServerFeatures {
             max_payload_size: 1 << 20,
@@ -47,10 +47,11 @@ async fn handshake(sock: &mut TcpStream) {
     let auth_frame = read_frame(sock, &mut buf).await.expect("auth");
     let _auth: AuthPayload = from_cbor_bytes(&auth_frame.payload).expect("decode auth");
     let auth_ok = AuthOkPayload {
-        // The server assigns the agent id; the client no longer sends one.
-        agent_id: [0x11; 16],
+        // The server assigns the space id; the client no longer sends one.
+        space_id: [0x11; 16],
         bound_shard_id: 0,
-        permissions: AgentPermissions {
+        permissions: SpacePermissions {
+            can_act_as: false,
             can_encode: true,
             can_recall: true,
             can_plan: true,
@@ -202,13 +203,14 @@ async fn encode_wait_amends_card_with_stage_results() {
             "expected ENCODE_REQ"
         );
         let resp = EncodeResponse {
+            trace: None,
             memory_id: MEMORY_ID,
             was_deduplicated: false,
             salience: 0.5,
             auto_edges_added: 0,
             lsn: ENCODE_LSN,
-            agent_id: [0u8; 16],
-            context_id: 0,
+            space_id: [0u8; 16],
+            session_id: 0,
             kind: MemoryKindWire::Episodic,
             created_at_unix_nanos: 1,
             edges_out_count: 0,
@@ -311,7 +313,7 @@ fn stage_event(memory_id: u128) -> SubscriptionEvent {
     SubscriptionEvent {
         event_type: brain_db_sdk::wire::types::EventType::StageCompleted,
         memory_id,
-        context_id: 0,
+        session_id: 0,
         text: String::new(),
         kind: MemoryKindWire::Episodic,
         salience: 0.0,

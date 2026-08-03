@@ -25,17 +25,19 @@ pub async fn run(
     };
     let txn = session.effective_txn(explicit_txn);
 
-    let context_filter = if args.filter_context.is_empty() {
+    let session_filter = if args.filter_session.is_empty() {
         None
     } else {
-        Some(args.filter_context.clone())
+        Some(args.filter_session.clone())
     };
 
     let request = ReasonRequest {
+        act_as: None,
+        trace: false,
         observation: ObservationInput::ByText(args.observation),
         depth: args.depth,
         confidence_threshold: args.confidence,
-        context_filter,
+        session_filter,
         max_inferences: args.max_inferences,
         budget_wall_time_ms: args.budget_wall_time_ms,
         request_id: Some(brain_db_sdk::new_id()),

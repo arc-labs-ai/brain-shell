@@ -24,6 +24,7 @@ pub async fn run(
     let txn = session.effective_txn(explicit_txn);
 
     let request = ForgetRequest {
+        act_as: None,
         memory_id: args.id.0.raw(),
         mode: args.mode.into_wire(),
         request_id: brain_db_sdk::new_id(),

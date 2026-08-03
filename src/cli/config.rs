@@ -4,7 +4,7 @@
 //! holding two concerns:
 //!
 //! - `[settings]` — persistent shell preferences (output format,
-//!   timing, sticky context, default server, the sticky active profile).
+//!   timing, sticky session, default server, the sticky active profile).
 //! - `[profiles.<name>]` — named credential profiles. Each profile pins
 //!   a `server` endpoint and an API-key `token`. Profiles are how the
 //!   shell authenticates: there is no anonymous connect.
@@ -49,7 +49,7 @@ const HEADER: &str = "\
 /// Top-level config: persistent `[settings]` plus the credential
 /// `[profiles.*]`. Unknown top-level sections are tolerated and dropped
 /// — a config written by a different/older build (e.g. one carrying a
-/// long-gone `[agents.*]` section) must not brick the tool. The stale
+/// long-gone `[spaces.*]` section) must not brick the tool. The stale
 /// section is simply ignored on load and disappears on the next save.
 /// Typos that matter are still caught: `[settings]`/`[profiles.*]` keep
 /// `deny_unknown_fields`, and malformed TOML is still a hard error.
@@ -72,7 +72,7 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timing: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub sticky_context: Option<u64>,
+    pub sticky_session: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
     /// Name of the profile the shell defaults to when no `--profile`
@@ -280,12 +280,12 @@ impl Config {
                 };
                 self.file.settings.timing = Some(v);
             }
-            "sticky_context" => {
+            "sticky_session" => {
                 let v: u64 = value.parse().map_err(|e| ConfigError::InvalidValue {
                     key: key.into(),
                     detail: format!("'{value}' is not a non-negative integer: {e}"),
                 })?;
-                self.file.settings.sticky_context = Some(v);
+                self.file.settings.sticky_session = Some(v);
             }
             "server" => {
                 // Light validation: must contain ':' so it looks like
@@ -344,10 +344,10 @@ impl Config {
                 .map(|b| if b { "true" } else { "false" })
                 .unwrap_or("(unset)")
                 .to_owned()),
-            "sticky_context" => Ok(self
+            "sticky_session" => Ok(self
                 .file
                 .settings
-                .sticky_context
+                .sticky_session
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| "(unset)".to_owned())),
             "server" => Ok(self
@@ -534,7 +534,7 @@ fn save_atomic(path: &Path, file: &ConfigFile) -> Result<(), ConfigError> {
 const KNOWN_KEYS: [&str; 5] = [
     "output",
     "timing",
-    "sticky_context",
+    "sticky_session",
     "server",
     "active_profile",
 ];
@@ -635,7 +635,7 @@ mod tests {
         let mut c = Config::load_or_default_at(&path).unwrap();
         c.set("output", "json").unwrap();
         c.set("timing", "true").unwrap();
-        c.set("sticky_context", "7").unwrap();
+        c.set("sticky_session", "7").unwrap();
         c.add_profile("work", "127.0.0.1:9090", "sk-secret-token")
             .unwrap();
         c.set_active_profile("work").unwrap();
@@ -644,7 +644,7 @@ mod tests {
         let re = Config::load_or_default_at(&path).unwrap();
         assert_eq!(re.file.settings.output, Some(OutputPref::Json));
         assert_eq!(re.file.settings.timing, Some(true));
-        assert_eq!(re.file.settings.sticky_context, Some(7));
+        assert_eq!(re.file.settings.sticky_session, Some(7));
         assert_eq!(re.file.settings.active_profile.as_deref(), Some("work"));
         assert_eq!(re.file.profiles.len(), 1);
         let p = re.get_profile("work").unwrap();
@@ -680,7 +680,7 @@ mod tests {
 
     #[test]
     fn unknown_top_level_section_is_ignored_not_an_error() {
-        // A config carrying a long-gone section (the old `[agents.*]`) is
+        // A config carrying a long-gone section (the old `[spaces.*]`) is
         // valid TOML but unknown to the current schema. It must NOT brick the
         // tool — the unknown section is dropped, the known sections load, and
         // the stale section vanishes on the next save. (No code reads the old
@@ -691,7 +691,7 @@ mod tests {
         fs::write(
             &path,
             "[settings]\nserver = \"10.0.0.1:9090\"\n\n\
-             [agents.work]\nid = \"019e44c6-0000-0000-0000-000000000000\"\nactive = true\n",
+             [spaces.work]\nid = \"019e44c6-0000-0000-0000-000000000000\"\nactive = true\n",
         )
         .unwrap();
         let cfg = Config::load_or_default_at(&path).expect("stale section must not error");
@@ -707,11 +707,11 @@ mod tests {
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap();
         c.set("output", "json").unwrap();
         c.set("timing", "off").unwrap();
-        c.set("sticky_context", "42").unwrap();
+        c.set("sticky_session", "42").unwrap();
         c.set("server", "10.0.0.1:9090").unwrap();
         assert_eq!(c.get("output").unwrap(), "json");
         assert_eq!(c.get("timing").unwrap(), "false");
-        assert_eq!(c.get("sticky_context").unwrap(), "42");
+        assert_eq!(c.get("sticky_session").unwrap(), "42");
         assert_eq!(c.get("server").unwrap(), "10.0.0.1:9090");
     }
 
@@ -752,7 +752,7 @@ mod tests {
             ConfigError::InvalidValue { .. }
         ));
         assert!(matches!(
-            c.set("sticky_context", "not-a-number").unwrap_err(),
+            c.set("sticky_session", "not-a-number").unwrap_err(),
             ConfigError::InvalidValue { .. }
         ));
         assert!(matches!(

@@ -7,7 +7,7 @@ fn base_event(event_type: EventType, memory_id: u128) -> SubscriptionEvent {
     SubscriptionEvent {
         event_type,
         memory_id,
-        context_id: 0,
+        session_id: 0,
         text: String::new(),
         kind: MemoryKindWire::Episodic,
         salience: 0.0,

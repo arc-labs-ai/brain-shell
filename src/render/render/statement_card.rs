@@ -49,7 +49,7 @@ pub struct StatementCard {
     /// believes this statement (superseded / tombstoned / FORGET
     /// cascade). The renderer surfaces this with a warning line so the
     /// user knows the row is historical — the time-travel signal for
-    /// agents browsing past beliefs without resurrecting tombstones.
+    /// spaces browsing past beliefs without resurrecting tombstones.
     pub record_invalidated_at_unix_nanos: Option<u64>,
 }
 

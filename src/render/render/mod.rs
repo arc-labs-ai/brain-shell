@@ -40,7 +40,7 @@ pub use graph_tree::{GraphNode, GraphTree};
 pub use help::{
     HelpFlagRow, HelpItem, HelpReference, HelpSection, HelpTopLevel, HelpUnknown, HelpVerb,
 };
-pub use info::{AgentInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo};
+pub use info::{SpaceInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo};
 pub use link::{LinkRendered, UnlinkRendered};
 pub use memory::RecallResults;
 pub use plan::PlanSteps;
@@ -70,7 +70,7 @@ pub fn fmt_short_id(raw: u128) -> String {
     memory_id_short_form(raw)
 }
 
-/// First 4 hex chars + `…`. Used for agent_id and model fingerprints
+/// First 4 hex chars + `…`. Used for space_id and model fingerprints
 /// in compact views where the full form would dominate the line.
 #[must_use]
 pub fn fmt_short_hex_16(bytes: &[u8; 16]) -> String {
@@ -106,7 +106,7 @@ pub fn fmt_hex_16_bare(bytes: &[u8; 16]) -> String {
 }
 
 /// Canonical UUID 8-4-4-4-12 dashed form: `01927a8b-4c2f-7000-8000-deadbeeffeed`.
-/// Use for `AgentId` / any other field that's logically a UUID — the
+/// Use for `SpaceId` / any other field that's logically a UUID — the
 /// dashes are the standard, scripts and humans both parse this shape.
 /// Skip `0x`-prefixed `fmt_hex_16` for these: the prefix is wrong for
 /// UUIDs and tools that interpret UUIDs reject it.
@@ -210,7 +210,7 @@ pub fn fmt_time(nanos: u64) -> String {
 }
 
 /// Same as [`fmt_time`] but with an extra clarifying note inside the
-/// brackets. Use for row-specific context like `"dedup hit time"` or
+/// brackets. Use for row-specific session like `"dedup hit time"` or
 /// `"+12 ms clock skew"` that belongs with the timestamp itself,
 /// not as a trailing comment that an operator might miss when
 /// skimming.
@@ -225,7 +225,7 @@ pub fn fmt_time_with_note(nanos: u64, note: &str) -> String {
 }
 
 /// For values ALREADY in RFC3339 form (e.g. config-stored strings
-/// like agent `created_at`). Appends the relative age in brackets:
+/// like space `created_at`). Appends the relative age in brackets:
 ///
 /// ```text
 /// "<rfc3339> (<relative>)"

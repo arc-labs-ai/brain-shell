@@ -1,10 +1,10 @@
 //! Shell-local domain identifiers.
 //!
-//! The wire protocol ships memory ids as a packed `u128` and agent ids as
+//! The wire protocol ships memory ids as a packed `u128` and space ids as
 //! raw 16-byte UUIDs. The shell needs richer, typed handles for those
 //! nouns: a `MemoryId` that knows its shard / slot / version triple so the
 //! parser can round-trip the `s{shard}/m{slot}/v{version}` form users paste,
-//! and an `AgentId` newtype so identity resolution doesn't pass bare arrays.
+//! and an `SpaceId` newtype so identity resolution doesn't pass bare arrays.
 //! These are the shell's own domain types, mapped onto the SDK's wire shapes
 //! at the call boundary.
 
@@ -61,25 +61,25 @@ impl MemoryId {
     }
 }
 
-/// An agent identity — a 16-byte UUIDv7 the connection authenticates as.
+/// An space identity — a 16-byte UUIDv7 the connection authenticates as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AgentId(pub Uuid);
+pub struct SpaceId(pub Uuid);
 
-impl AgentId {
+impl SpaceId {
     /// Mint a fresh time-ordered identity.
     #[must_use]
     pub fn new() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The raw 16-byte form the SDK's `ClientConfig.agent_id` expects.
+    /// The raw 16-byte form the SDK's `ClientConfig.space_id` expects.
     #[must_use]
     pub fn to_bytes(self) -> [u8; 16] {
         *self.0.as_bytes()
     }
 }
 
-impl Default for AgentId {
+impl Default for SpaceId {
     fn default() -> Self {
         Self::new()
     }

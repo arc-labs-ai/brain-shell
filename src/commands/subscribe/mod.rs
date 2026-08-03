@@ -43,10 +43,10 @@ fn is_human_output(o: &OutputFormatArg) -> bool {
 /// Build the `SubscribeRequest` from the parsed args. `max_inflight`
 /// of 0 lets the server pick its default window.
 fn build_request(args: &SubscribeArgs) -> SubscribeRequest {
-    let contexts = if args.context.is_empty() {
+    let sessions = if args.session.is_empty() {
         None
     } else {
-        Some(args.context.clone())
+        Some(args.session.clone())
     };
     let kinds = if args.kind.is_empty() {
         None
@@ -54,11 +54,13 @@ fn build_request(args: &SubscribeArgs) -> SubscribeRequest {
         Some(args.kind.iter().map(|k| k.into_wire()).collect())
     };
     SubscribeRequest {
+        act_as: None,
         filter: SubscriptionFilter {
-            contexts,
+            memory_ids: None,
+            session_filter: sessions,
             kinds,
             similar_to: None,
-            agents: None,
+            spaces: None,
         },
         include_history: args.start_lsn.is_some(),
         from_lsn: args.start_lsn,
@@ -117,7 +119,7 @@ async fn stream_until_signal(
         let _ = io::stderr().flush();
     }
 
-    // Build the render context once and reuse it for every event so
+    // Build the render session once and reuse it for every event so
     // color / OSC 8 / width handling stays consistent. Pretty JSON
     // and YAML buffer poorly across event boundaries, so force ndjson
     // for any structured stream.

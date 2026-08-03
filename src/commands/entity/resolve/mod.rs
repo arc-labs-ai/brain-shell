@@ -34,8 +34,9 @@ pub(crate) async fn resolve(
 ) -> Result<EntityResolveResponse, BrainError> {
     client
         .resolve_entity(&EntityResolveRequest {
+            act_as: None,
             candidate_name: args.name.clone(),
-            context: args.context.clone().unwrap_or_default(),
+            resolution_context: args.session.clone().unwrap_or_default(),
             entity_type_hint: args.type_id,
             allow_create: args.allow_create,
             request_id: brain_db_sdk::new_id(),

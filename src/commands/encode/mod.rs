@@ -42,7 +42,7 @@ use super::Rendered;
 /// "timed out waiting for" line rather than hanging.
 const STAGES_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Send an `ENCODE`. Inherits the session's active txn + sticky context
+/// Send an `ENCODE`. Inherits the shell's active txn + sticky session
 /// when the caller didn't override them. Pushes the resulting memory id
 /// onto the recent-id list. When `--wait*` is set and the write actually
 /// hit the log, blocks on the SUBSCRIBE stream to amend the card with
@@ -60,14 +60,17 @@ pub async fn run(
         None => None,
     };
     let txn = session.effective_txn(explicit_txn);
-    let context_id = session.effective_context(args.context);
+    let session_id = session.effective_session(args.session);
 
     // Memory kind, salience, edges, and near-duplicate consolidation are all
     // decided server-side — the client supplies only the text and routing
     // metadata. There is no client knob for any of them.
     let request = EncodeRequest {
+        act_as: None,
+        wait: Default::default(),
+        allow_duplicates: false,
         text: text.clone(),
-        context_id,
+        session_id,
         request_id: request_id.map(RequestId::to_bytes).unwrap_or_else(new_id),
         txn_id: txn,
         occurred_at_unix_nanos: None,
@@ -150,13 +153,15 @@ async fn watch_after_encode(
     }
 
     let request = SubscribeRequest {
+        act_as: None,
         filter: SubscriptionFilter {
-            contexts: Some(vec![resp.context_id]),
+            memory_ids: None,
+            session_filter: Some(vec![resp.session_id]),
             kinds: None,
             similar_to: None,
-            // Nil agent is the anonymous/test path; a Some([nil]) filter
+            // Nil space is the anonymous/test path; a Some([nil]) filter
             // would exclude everything, so leave it open in that case.
-            agents: (resp.agent_id != [0u8; 16]).then(|| vec![resp.agent_id]),
+            spaces: (resp.space_id != [0u8; 16]).then(|| vec![resp.space_id]),
         },
         include_history: true,
         from_lsn: Some(resp.lsn.saturating_add(1)),
@@ -280,6 +285,11 @@ fn stage_summary(event: &SubscriptionEvent, outcome: StageOutcomeLabel) -> Strin
     match &event.stage_payload {
         Some(StagePayload::AutoEdge(p)) => edge_summary(p.edges_written, "SimilarTo"),
         Some(StagePayload::TemporalEdge(p)) => edge_summary(p.edges_written, "FollowedBy"),
+        Some(StagePayload::Hype(p)) => format!(
+            "{} {}",
+            p.questions_written,
+            plural(p.questions_written, "question", "questions"),
+        ),
         Some(StagePayload::Extractor(p)) => {
             let base = format!(
                 "{} {}, {} {}, {} {} · {}",
@@ -344,6 +354,7 @@ fn label_for_kind(kind: StageKind) -> StageKindLabel {
         StageKind::AutoEdge => StageKindLabel::AutoEdge,
         StageKind::TemporalEdge => StageKindLabel::TemporalEdge,
         StageKind::Extractor => StageKindLabel::Extractor,
+        StageKind::Hype => StageKindLabel::Hype,
     }
 }
 

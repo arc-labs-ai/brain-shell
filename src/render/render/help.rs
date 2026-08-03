@@ -63,8 +63,8 @@ pub struct HelpSection {
 }
 
 /// One row inside a [`HelpSection`]. `signature` is the verb form
-/// (e.g. `"encode <TEXT> [--context N]"`); `description` is a brief
-/// one-liner. Description may be empty — some rows (e.g. `\agent`)
+/// (e.g. `"encode <TEXT> [--session N]"`); `description` is a brief
+/// one-liner. Description may be empty — some rows (e.g. `\space`)
 /// are self-explanatory from the signature alone.
 pub struct HelpItem {
     pub signature: String,
@@ -180,7 +180,7 @@ pub struct HelpVerb {
 }
 
 /// One row inside the [`HelpVerb`] `flags` or `sources` tables.
-/// `signature` is the flag form (`"--context N"`), `description` is a
+/// `signature` is the flag form (`"--session N"`), `description` is a
 /// one-line semantics blurb (range, default, gotcha) — clap covers
 /// syntax, this carries meaning.
 pub struct HelpFlagRow {
@@ -527,7 +527,7 @@ mod tests {
                     }],
                 },
             ],
-            footer: vec!["Tip: bare `brain` mints a fresh agent.".into()],
+            footer: vec!["Tip: bare `brain` mints a fresh space.".into()],
         }
     }
 
@@ -536,13 +536,13 @@ mod tests {
             name: "encode".into(),
             tagline: "write a memory".into(),
             usage: vec![
-                "encode <TEXT> [--context N] [--kind episodic|semantic|consolidated]".into(),
+                "encode <TEXT> [--session N] [--kind episodic|semantic|consolidated]".into(),
                 "       [--salience F] [--allow-duplicate] [--txn HEX]".into(),
             ],
             flags: vec![],
             sources: vec![],
             description: vec![
-                "Stores text as a memory. Inherits the session's sticky --context.".into(),
+                "Stores text as a memory. Inherits the shell's sticky --session.".into(),
                 "Deduplication is ON by default.".into(),
             ],
             example: None,
@@ -585,7 +585,7 @@ mod tests {
     fn top_level_render_includes_footer_when_present() {
         let out = render(&sample_top_level(), OutputFormat::Table);
         assert!(
-            out.contains("Tip: bare `brain` mints a fresh agent."),
+            out.contains("Tip: bare `brain` mints a fresh space."),
             "missing footer: {out}"
         );
     }
@@ -676,7 +676,7 @@ mod tests {
         let mut verb = sample_verb();
         verb.flags = vec![
             HelpFlagRow {
-                signature: "--context N".into(),
+                signature: "--session N".into(),
                 description: "u64; default 0".into(),
             },
             HelpFlagRow {
@@ -686,7 +686,7 @@ mod tests {
         ];
         let out = render(&verb, OutputFormat::Table);
         assert!(out.contains("Flags"), "missing Flags label: {out}");
-        assert!(out.contains("--context N"), "missing flag row: {out}");
+        assert!(out.contains("--session N"), "missing flag row: {out}");
         assert!(out.contains("u64; default 0"), "missing flag desc: {out}");
         assert!(
             out.contains("--allow-duplicate"),
@@ -748,11 +748,11 @@ mod tests {
     #[test]
     fn verb_render_example_block_shows_line() {
         let mut verb = sample_verb();
-        verb.example = Some(r#"encode "hello" --context 7"#.into());
+        verb.example = Some(r#"encode "hello" --session 7"#.into());
         let out = render(&verb, OutputFormat::Table);
         assert!(out.contains("Example"), "missing Example label: {out}");
         assert!(
-            out.contains(r#"encode "hello" --context 7"#),
+            out.contains(r#"encode "hello" --session 7"#),
             "missing example body: {out}"
         );
     }

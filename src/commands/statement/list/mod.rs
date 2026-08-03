@@ -31,6 +31,7 @@ pub async fn run(
     };
 
     let request = StatementListRequest {
+        act_as: None,
         subject,
         predicate: args.predicate.clone().unwrap_or_default(),
         kind: 0,

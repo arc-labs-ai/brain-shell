@@ -1,6 +1,6 @@
 //! Diagnostic card for `\info` (REPL) / `brain info` (one-shot).
 //!
-//! Four sections: Server (cached handshake), Agent (resolved id +
+//! Four sections: Server (cached handshake), Space (resolved id +
 //! source + config entry details), Connection (SDK state), Session
 //! (shell-side preferences + REPL state).
 //!
@@ -17,7 +17,7 @@ use crate::render::theme::Token;
 use crate::render::{Render, RenderCtx};
 
 /// Width of the leading label column inside each section. Sized so
-/// the longest label (`sticky_context`, `wire_version`, `connected_at`)
+/// the longest label (`sticky_session`, `wire_version`, `connected_at`)
 /// still leaves a comfortable gap before the value column.
 const LABEL_WIDTH: usize = 16;
 
@@ -25,7 +25,7 @@ const LABEL_WIDTH: usize = 16;
 /// `commands::info::collect`; the renderer here owns only the layout.
 pub struct InfoCard {
     pub server: ServerInfo,
-    pub agent: AgentInfo,
+    pub space: SpaceInfo,
     pub connection: ConnectionInfo,
     pub session: SessionInfo,
 }
@@ -56,13 +56,13 @@ pub struct ServerWelcomeFields {
     pub server_push: bool,
 }
 
-/// Server-assigned identity for this connection. The agent id and
+/// Server-assigned identity for this connection. The space id and
 /// namespace are derived by the server from the API-key credential; the
 /// shell only reflects them. `profile` is the local credential profile
 /// the connection authenticated through, if any.
 #[derive(Debug, Clone, Default)]
-pub struct AgentInfo {
-    pub agent_id: [u8; 16],
+pub struct SpaceInfo {
+    pub space_id: [u8; 16],
     /// Server-derived tenant namespace this connection resolved to.
     /// Empty == the reserved `brain` system namespace (no tenant);
     /// rendered as `— (system)`. Read-only — the client never sends it.
@@ -84,11 +84,11 @@ pub struct ConnectionInfo {
 /// Shell-side session preferences + REPL state. All in-memory and
 /// non-blocking to collect; the values surface here so an operator
 /// debugging "why did that command behave that way?" can verify the
-/// sticky context / active txn / timing flag in one place.
+/// sticky session / active txn / timing flag in one place.
 #[derive(Debug, Clone, Default)]
 pub struct SessionInfo {
     pub output: String,
-    pub sticky_context: Option<u64>,
+    pub sticky_session: Option<u64>,
     pub active_txn: Option<String>,
     pub timing: bool,
 }
@@ -150,16 +150,16 @@ impl Render for InfoCard {
         }
         writeln!(w)?;
 
-        // ── Agent ─────────────────────────────────────────────────
-        writeln!(w, "{}", theme.paint(Token::Accent, "Agent", policy))?;
-        write_row(w, theme, policy, "id", &fmt_uuid(&self.agent.agent_id))?;
-        let ns_str = if self.agent.namespace.is_empty() {
+        // ── Space ─────────────────────────────────────────────────
+        writeln!(w, "{}", theme.paint(Token::Accent, "Space", policy))?;
+        write_row(w, theme, policy, "id", &fmt_uuid(&self.space.space_id))?;
+        let ns_str = if self.space.namespace.is_empty() {
             "— (system)".to_string()
         } else {
-            self.agent.namespace.clone()
+            self.space.namespace.clone()
         };
         write_row(w, theme, policy, "namespace", &ns_str)?;
-        let profile_str = self.agent.profile.as_deref().unwrap_or("— (token)");
+        let profile_str = self.space.profile.as_deref().unwrap_or("— (token)");
         write_row(w, theme, policy, "profile", profile_str)?;
         writeln!(w)?;
 
@@ -184,10 +184,10 @@ impl Render for InfoCard {
         write_row(w, theme, policy, "output", &self.session.output)?;
         let ctx_str = self
             .session
-            .sticky_context
+            .sticky_session
             .map(|c| c.to_string())
             .unwrap_or_else(|| "(none)".to_string());
-        write_row(w, theme, policy, "sticky_context", &ctx_str)?;
+        write_row(w, theme, policy, "sticky_session", &ctx_str)?;
         let txn_str = self
             .session
             .active_txn
@@ -221,10 +221,10 @@ impl Render for InfoCard {
                     },
                 })),
             },
-            "agent": {
-                "id": fmt_uuid(&self.agent.agent_id),
-                "namespace": self.agent.namespace,
-                "profile": self.agent.profile,
+            "space": {
+                "id": fmt_uuid(&self.space.space_id),
+                "namespace": self.space.namespace,
+                "profile": self.space.profile,
             },
             "connection": {
                 "authenticated": self.connection.authenticated,
@@ -232,7 +232,7 @@ impl Render for InfoCard {
             },
             "session": {
                 "output": self.session.output,
-                "sticky_context": self.session.sticky_context,
+                "sticky_session": self.session.sticky_session,
                 "active_txn": self.session.active_txn,
                 "timing": self.session.timing,
             },
@@ -288,8 +288,8 @@ mod tests {
                 address: "127.0.0.1:9090".into(),
                 welcome: None,
             },
-            agent: AgentInfo {
-                agent_id: [
+            space: SpaceInfo {
+                space_id: [
                     0x01, 0x92, 0x7a, 0x8b, 0x4c, 0x2f, 0x70, 0x00, 0x80, 0x00, 0xde, 0xad, 0xbe,
                     0xef, 0xfe, 0xed,
                 ],
@@ -302,7 +302,7 @@ mod tests {
             },
             session: SessionInfo {
                 output: "wide".into(),
-                sticky_context: Some(7),
+                sticky_session: Some(7),
                 active_txn: None,
                 timing: false,
             },
@@ -313,7 +313,7 @@ mod tests {
     fn render_table_shows_all_four_sections() {
         let out = render(&baseline(), OutputFormat::Table);
         assert!(out.contains("Server"));
-        assert!(out.contains("Agent"));
+        assert!(out.contains("Space"));
         assert!(out.contains("Connection"));
         assert!(out.contains("Session"));
     }
@@ -369,7 +369,7 @@ mod tests {
     #[test]
     fn render_table_token_path_shows_no_profile_marker() {
         let mut card = baseline();
-        card.agent.profile = None;
+        card.space.profile = None;
         let out = render(&card, OutputFormat::Table);
         assert!(
             out.contains("— (token)"),
@@ -382,7 +382,7 @@ mod tests {
         let out = render(&baseline(), OutputFormat::Table);
         assert!(
             out.contains("01927a8b-4c2f-7000-8000-deadbeeffeed"),
-            "agent uuid must render in canonical dashed form: {out}"
+            "space uuid must render in canonical dashed form: {out}"
         );
     }
 
@@ -403,7 +403,7 @@ mod tests {
     #[test]
     fn render_table_named_namespace_shows_tenant() {
         let mut card = baseline();
-        card.agent.namespace = "acme".into();
+        card.space.namespace = "acme".into();
         let out = render(&card, OutputFormat::Table);
         assert!(out.contains("acme"), "tenant namespace must render: {out}");
         assert!(
@@ -415,10 +415,10 @@ mod tests {
     #[test]
     fn render_json_includes_namespace() {
         let mut card = baseline();
-        card.agent.namespace = "acme".into();
+        card.space.namespace = "acme".into();
         let out = render(&card, OutputFormat::Json);
         let v: Value = serde_json::from_str(&out).expect("parse json");
-        assert_eq!(v["agent"]["namespace"], "acme");
+        assert_eq!(v["space"]["namespace"], "acme");
     }
 
     #[test]
@@ -426,13 +426,13 @@ mod tests {
         let out = render(&baseline(), OutputFormat::Json);
         let v: Value = serde_json::from_str(&out).expect("parse json");
         assert!(v["server"].is_object());
-        assert!(v["agent"].is_object());
+        assert!(v["space"].is_object());
         assert!(v["connection"].is_object());
         assert!(v["session"].is_object());
         // Disconnected → welcome is null. JSON consumers branch on
         // this to decide whether the rest of the server block is
         // meaningful.
         assert!(v["server"]["welcome"].is_null());
-        assert_eq!(v["agent"]["id"], "01927a8b-4c2f-7000-8000-deadbeeffeed");
+        assert_eq!(v["space"]["id"], "01927a8b-4c2f-7000-8000-deadbeeffeed");
     }
 }

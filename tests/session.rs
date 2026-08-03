@@ -24,18 +24,18 @@ fn prompt_marks_active_txn() {
 }
 
 #[test]
-fn prompt_shows_sticky_context() {
+fn prompt_shows_sticky_session() {
     let mut s = Session::new(addr(), OutputFormatArg::Table);
-    s.sticky_context = Some(42);
-    assert_eq!(s.prompt(), "brain[ctx=42]> ");
+    s.sticky_session = Some(42);
+    assert_eq!(s.prompt(), "brain[sess=42]> ");
 }
 
 #[test]
-fn prompt_combines_txn_and_context() {
+fn prompt_combines_txn_and_session() {
     let mut s = Session::new(addr(), OutputFormatArg::Table);
     s.active_txn = Some([1; 16]);
-    s.sticky_context = Some(3);
-    assert_eq!(s.prompt(), "brain*[ctx=3]> ");
+    s.sticky_session = Some(3);
+    assert_eq!(s.prompt(), "brain*[sess=3]> ");
 }
 
 #[test]
@@ -74,11 +74,11 @@ fn effective_txn_inherits_active() {
 }
 
 #[test]
-fn effective_context_inherits_sticky() {
+fn effective_session_inherits_sticky() {
     let mut s = Session::new(addr(), OutputFormatArg::Table);
-    s.sticky_context = Some(11);
-    assert_eq!(s.effective_context(None), 11);
-    assert_eq!(s.effective_context(Some(5)), 5);
+    s.sticky_session = Some(11);
+    assert_eq!(s.effective_session(None), 11);
+    assert_eq!(s.effective_session(Some(5)), 5);
 }
 
 // ---------------------------------------------------------------------------

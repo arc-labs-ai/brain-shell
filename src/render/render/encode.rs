@@ -14,8 +14,8 @@
 //!     side-by-side see fields in the same screen-column.
 //!
 //! Default mode keeps only what a developer wants when eyeballing a
-//! REPL — heading, content echo, type/salience/context, footer hint.
-//! `-o wide` adds the agent / embedder / edges / created / dedup
+//! REPL — heading, content echo, type/salience/session, footer hint.
+//! `-o wide` adds the space / embedder / edges / created / dedup
 //! block. The split keeps default output scannable while making the
 //! audit trail one flag away.
 //!
@@ -113,6 +113,7 @@ pub enum StageKindLabel {
     AutoEdge,
     TemporalEdge,
     Extractor,
+    Hype,
 }
 
 impl StageKindLabel {
@@ -124,6 +125,7 @@ impl StageKindLabel {
             StageKindLabel::AutoEdge => "auto_edge",
             StageKindLabel::TemporalEdge => "temporal_edge",
             StageKindLabel::Extractor => "extractor",
+            StageKindLabel::Hype => "hype",
         }
     }
 }
@@ -232,8 +234,8 @@ impl Render for EncodeRendered {
             "was_deduplicated": r.was_deduplicated,
             "salience": r.salience,
             "auto_edges_added": r.auto_edges_added,
-            "agent_id": fmt_hex_16(&r.agent_id),
-            "context_id": r.context_id,
+            "space_id": fmt_hex_16(&r.space_id),
+            "session_id": r.session_id,
             "kind": format!("{:?}", r.kind),
             "created_at_unix_nanos": r.created_at_unix_nanos,
             "edges_out_count": r.edges_out_count,
@@ -352,16 +354,16 @@ fn render_human(
         write_row(w, ctx, "content", &painted)?;
     }
 
-    // ── Body: type / salience / context (fresh) or match (dedup) ─
+    // ── Body: type / salience / session (fresh) or match (dedup) ─
     if r.was_deduplicated {
-        // Dedup hit replaces the type/salience/context row with a
+        // Dedup hit replaces the type/salience/session row with a
         // single explanatory match row. There's no fresh salience to
         // report and the type/kind of the matched memory isn't on
         // the wire response.
-        let ctx_text = r.context_id.to_string();
+        let session_text = r.session_id.to_string();
         let painted = format!(
-            "same content in context {}",
-            theme.paint(Token::Value, &ctx_text, policy),
+            "same content in session {}",
+            theme.paint(Token::Value, &session_text, policy),
         );
         write_row(w, ctx, "match", &painted)?;
     } else {
@@ -382,16 +384,16 @@ fn render_human(
     if wide {
         writeln!(w)?;
 
-        // Agent — render as canonical 8-4-4-4-12 UUID. Nil UUID is
+        // Space — render as canonical 8-4-4-4-12 UUID. Nil UUID is
         // the unauthenticated / test path; show "default" rather
         // than a string of zeroes.
-        let agent_value = if r.agent_id == [0u8; 16] {
+        let space_value = if r.space_id == [0u8; 16] {
             theme.paint(Token::Muted, "default", policy).to_string()
         } else {
-            let uuid = fmt_uuid(&r.agent_id);
+            let uuid = fmt_uuid(&r.space_id);
             theme.paint(Token::Value, &uuid, policy).to_string()
         };
-        write_row(w, ctx, "agent", &agent_value)?;
+        write_row(w, ctx, "space", &space_value)?;
 
         // Embedder fingerprint, chunked. 32 hex chars in a row are
         // unreadable; the chunking gives the eye an anchor at the
@@ -635,6 +637,7 @@ fn write_stages_row(w: &mut dyn Write, ctx: &RenderCtx, pending: &[StageKind]) -
                 StageKind::AutoEdge => "auto_edge",
                 StageKind::TemporalEdge => "temporal_edge",
                 StageKind::Extractor => "extractor",
+                StageKind::Hype => "hype",
             })
             .collect();
         let joined = names.join(" · ");
@@ -672,7 +675,7 @@ fn write_heading(
 }
 
 /// Render the labelled `metadata` row carrying type / salience /
-/// context as three sub-columns separated by a fixed 6-space gap.
+/// session as three sub-columns separated by a fixed 6-space gap.
 /// The row label is `metadata` so it reads naturally with the rest
 /// of the body (`id`, `content`, `metadata`); each inner field
 /// keeps its own sub-label so a glance picks out the three values.
@@ -683,17 +686,17 @@ fn write_type_row(w: &mut dyn Write, ctx: &RenderCtx, r: &EncodeResponse) -> io:
     let kind_painted = theme.paint(Token::Value, kind, policy);
     let sal_text = format!("{:.2}", r.salience);
     let sal_painted = theme.paint(Token::Value, &sal_text, policy);
-    let ctx_text = r.context_id.to_string();
-    let ctx_painted = theme.paint(Token::Value, &ctx_text, policy);
+    let session_text = r.session_id.to_string();
+    let session_painted = theme.paint(Token::Value, &session_text, policy);
 
     // Sub-labels are muted so values pop. Fixed 6-space inter-
-    // column gap keeps cards aligned side-by-side; long context ids
+    // column gap keeps cards aligned side-by-side; long session ids
     // push the right side further out instead of wrapping.
     let type_label = theme.paint(Token::Label, "type", policy);
     let sal_label = theme.paint(Token::Label, "salience", policy);
-    let ctx_label = theme.paint(Token::Label, "context", policy);
+    let session_label = theme.paint(Token::Label, "session", policy);
     let value = format!(
-        "{type_label}  {kind_painted}      {sal_label}  {sal_painted}      {ctx_label}  {ctx_painted}"
+        "{type_label}  {kind_painted}      {sal_label}  {sal_painted}      {session_label}  {session_painted}"
     );
     write_row(w, ctx, "metadata", &value)
 }
@@ -725,13 +728,14 @@ mod tests {
     /// existing test coverage.
     fn sample() -> EncodeRendered {
         EncodeRendered::new(EncodeResponse {
+            trace: None,
             memory_id: pack_memory_id(1, 1, 1),
             was_deduplicated: false,
             salience: 0.70,
             auto_edges_added: 0,
             lsn: 1,
-            agent_id: [0u8; 16],
-            context_id: 7,
+            space_id: [0u8; 16],
+            session_id: 7,
             kind: MemoryKindWire::Episodic,
             created_at_unix_nanos: 0,
             edges_out_count: 0,
@@ -797,26 +801,26 @@ mod tests {
         );
     }
 
-    // 4. Default mode hides the nil agent UUID entirely. (The id row
+    // 4. Default mode hides the nil space UUID entirely. (The id row
     // legitimately contains zero bytes when slots/shards/versions are
-    // small — assert on the labeled `agent` row instead of raw zeroes.)
+    // small — assert on the labeled `space` row instead of raw zeroes.)
     #[test]
     fn render_table_omits_nil_agent() {
         let out = render(&sample(), OutputFormat::Table);
         assert!(
-            !out.lines().any(|l| l.contains("  agent  ")),
-            "default mode must not surface agent row: {out}"
+            !out.lines().any(|l| l.contains("  space  ")),
+            "default mode must not surface space row: {out}"
         );
     }
 
-    // 5. Wide mode shows "default" for nil agent.
+    // 5. Wide mode shows "default" for nil space.
     #[test]
     fn render_table_wide_mode_shows_default_for_nil_agent() {
         let out = render(&sample(), OutputFormat::Wide);
-        assert!(out.contains("agent"), "wide must label agent row: {out}");
+        assert!(out.contains("space"), "wide must label space row: {out}");
         assert!(
             out.contains("default"),
-            "nil agent must surface as 'default': {out}"
+            "nil space must surface as 'default': {out}"
         );
     }
 
@@ -828,7 +832,7 @@ mod tests {
         r.response.lsn = 0;
         let out = render(&r, OutputFormat::Wide);
         assert!(out.contains("⟳ DEDUP HIT"), "wide+dedup heading: {out}");
-        assert!(out.contains("agent"), "wide+dedup agent row: {out}");
+        assert!(out.contains("space"), "wide+dedup space row: {out}");
         assert!(out.contains("embedder"), "wide+dedup embedder row: {out}");
         assert!(out.contains("edges"), "wide+dedup edges row: {out}");
         assert!(
@@ -878,11 +882,11 @@ mod tests {
         );
     }
 
-    // 8. Wide mode renders the agent as a canonical UUID.
+    // 8. Wide mode renders the space as a canonical UUID.
     #[test]
     fn render_table_wide_mode_shows_full_agent_uuid_for_real_agent() {
         let mut r = sample();
-        r.response.agent_id = [
+        r.response.space_id = [
             0x01, 0x92, 0x7a, 0x8b, 0x4c, 0x2f, 0x70, 0x00, 0x80, 0x00, 0xde, 0xad, 0xbe, 0xef,
             0xfe, 0xed,
         ];
@@ -893,7 +897,7 @@ mod tests {
         );
         assert!(
             !out.contains("default"),
-            "real agent must not render as 'default': {out}"
+            "real space must not render as 'default': {out}"
         );
     }
 
@@ -1259,7 +1263,7 @@ mod tests {
         // Find each row by its label, then extract the column where
         // the value begins (first non-space after the label + gap).
         for label in [
-            "id", "content", "agent", "embedder", "edges", "created", "dedup",
+            "id", "content", "space", "embedder", "edges", "created", "dedup",
         ] {
             let line = out
                 .lines()
@@ -1318,7 +1322,7 @@ mod tests {
     fn render_table_default_mode_omits_wide_block_but_keeps_rules() {
         let r = sample().with_source("hello");
         let out = render(&r, OutputFormat::Table);
-        for absent in ["agent", "embedder", "edges", "created", "dedup"] {
+        for absent in ["space", "embedder", "edges", "created", "dedup"] {
             assert!(
                 !out.contains(absent),
                 "default mode leaked wide row `{absent}`: {out}"
@@ -1332,8 +1336,8 @@ mod tests {
         assert!(out.contains("metadata"), "metadata row must remain");
         assert!(out.contains("stages"), "stages row must remain");
         assert!(
-            out.contains("type") && out.contains("salience") && out.contains("context"),
-            "metadata row must carry type/salience/context sub-labels: {out}"
+            out.contains("type") && out.contains("salience") && out.contains("session"),
+            "metadata row must carry type/salience/session sub-labels: {out}"
         );
     }
 

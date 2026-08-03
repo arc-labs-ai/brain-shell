@@ -23,7 +23,7 @@ pub enum Dispatched {
     /// The verb parses but isn't wired in this build. The caller
     /// surfaces the standard "<verb> is not yet available" notice.
     Deferred(&'static str),
-    /// The command is handled out-of-band by the caller (config / agent
+    /// The command is handled out-of-band by the caller (config / space
     /// / generate-completion / shell). Never returned for verbs that
     /// touch the wire.
     Handled,

@@ -15,14 +15,14 @@ pub const RECENT_ID_CAP: usize = 100;
 /// editor for its lifetime) reads it on every Tab.
 pub type RecentIds = Arc<Mutex<VecDeque<MemoryId>>>;
 
-/// Stateful REPL context.
+/// Stateful REPL session.
 #[derive(Debug, Clone)]
 pub struct Session {
     /// Active transaction id (set by `txn begin`, cleared by
     /// `txn commit` / `txn abort` / `\unset txn`).
     pub active_txn: Option<[u8; 16]>,
-    /// Sticky default for `--context` set via `\set context N`.
-    pub sticky_context: Option<u64>,
+    /// Sticky default for `--session` set via `\set session N`.
+    pub sticky_session: Option<u64>,
     /// Recently-returned memory ids (newest first, oldest evicted at
     /// [`RECENT_ID_CAP`]). Shared with the rustyline completer.
     pub recent_ids: RecentIds,
@@ -51,7 +51,7 @@ impl Session {
     pub fn new(server: SocketAddr, output: OutputFormatArg) -> Self {
         Self {
             active_txn: None,
-            sticky_context: None,
+            sticky_session: None,
             recent_ids: Arc::new(Mutex::new(VecDeque::with_capacity(RECENT_ID_CAP))),
             output,
             timing: false,
@@ -63,7 +63,7 @@ impl Session {
 
     /// Build a session seeded from persisted `Settings`. The
     /// caller has already merged `--output` overrides into
-    /// `output`; we apply `sticky_context` and `timing` here so the
+    /// `output`; we apply `sticky_session` and `timing` here so the
     /// REPL inherits the user's saved preferences. The `server`
     /// field on `settings` is consumed earlier (when picking the
     /// connect address) and is not duplicated into the session.
@@ -75,7 +75,7 @@ impl Session {
     ) -> Self {
         Self {
             active_txn: None,
-            sticky_context: settings.sticky_context,
+            sticky_session: settings.sticky_session,
             recent_ids: Arc::new(Mutex::new(VecDeque::with_capacity(RECENT_ID_CAP))),
             output,
             timing: settings.timing.unwrap_or(false),
@@ -110,11 +110,11 @@ impl Session {
         } else {
             format!("[ns={}]", self.namespace)
         };
-        let ctx_seg = match self.sticky_context {
-            Some(ctx) => format!("[ctx={ctx}]"),
+        let session_seg = match self.sticky_session {
+            Some(sess) => format!("[sess={sess}]"),
             None => String::new(),
         };
-        format!("brain{txn_marker}{ns_seg}{ctx_seg}> ")
+        format!("brain{txn_marker}{ns_seg}{session_seg}> ")
     }
 
     /// Helper used by op commands: if the caller didn't supply a
@@ -125,10 +125,10 @@ impl Session {
     }
 
     /// Helper used by `encode`: if the caller didn't supply a
-    /// `--context`, inherit the sticky one (else 0).
+    /// `--session`, inherit the sticky one (else 0).
     #[must_use]
-    pub fn effective_context(&self, explicit: Option<u64>) -> u64 {
-        explicit.or(self.sticky_context).unwrap_or(0)
+    pub fn effective_session(&self, explicit: Option<u64>) -> u64 {
+        explicit.or(self.sticky_session).unwrap_or(0)
     }
 
     /// Read-only snapshot of the recent-id ring. Used by tests and
@@ -166,18 +166,18 @@ mod tests {
     }
 
     #[test]
-    fn prompt_with_sticky_context() {
+    fn prompt_with_sticky_session() {
         let mut s = Session::new(addr(), OutputFormatArg::Table);
-        s.sticky_context = Some(7);
-        assert_eq!(s.prompt(), "brain[ctx=7]> ");
+        s.sticky_session = Some(7);
+        assert_eq!(s.prompt(), "brain[sess=7]> ");
     }
 
     #[test]
     fn prompt_with_both() {
         let mut s = Session::new(addr(), OutputFormatArg::Table);
         s.active_txn = Some([0u8; 16]);
-        s.sticky_context = Some(7);
-        assert_eq!(s.prompt(), "brain*[ctx=7]> ");
+        s.sticky_session = Some(7);
+        assert_eq!(s.prompt(), "brain*[sess=7]> ");
     }
 
     #[test]
@@ -188,11 +188,11 @@ mod tests {
     }
 
     #[test]
-    fn prompt_with_namespace_and_context() {
+    fn prompt_with_namespace_and_session() {
         let mut s = Session::new(addr(), OutputFormatArg::Table);
         s.namespace = "acme".to_string();
-        s.sticky_context = Some(7);
-        assert_eq!(s.prompt(), "brain[ns=acme][ctx=7]> ");
+        s.sticky_session = Some(7);
+        assert_eq!(s.prompt(), "brain[ns=acme][sess=7]> ");
     }
 
     #[test]
@@ -233,12 +233,12 @@ mod tests {
     }
 
     #[test]
-    fn effective_context_inherits_sticky() {
+    fn effective_session_inherits_sticky() {
         let mut s = Session::new(addr(), OutputFormatArg::Table);
-        s.sticky_context = Some(5);
-        assert_eq!(s.effective_context(None), 5);
-        assert_eq!(s.effective_context(Some(9)), 9);
-        s.sticky_context = None;
-        assert_eq!(s.effective_context(None), 0);
+        s.sticky_session = Some(5);
+        assert_eq!(s.effective_session(None), 5);
+        assert_eq!(s.effective_session(Some(9)), 9);
+        s.sticky_session = None;
+        assert_eq!(s.effective_session(None), 0);
     }
 }

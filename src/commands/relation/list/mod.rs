@@ -86,6 +86,7 @@ pub async fn run(
 
 fn from_request(from_entity: WireUuid, type_filter: String, limit: u32) -> RelationListFromRequest {
     RelationListFromRequest {
+        act_as: None,
         from_entity,
         relation_type_filter: type_filter,
         time_range_start_unix_nanos: 0,
@@ -99,6 +100,7 @@ fn from_request(from_entity: WireUuid, type_filter: String, limit: u32) -> Relat
 
 fn to_request(to_entity: WireUuid, type_filter: String, limit: u32) -> RelationListToRequest {
     RelationListToRequest {
+        act_as: None,
         to_entity,
         relation_type_filter: type_filter,
         time_range_start_unix_nanos: 0,

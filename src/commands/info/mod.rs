@@ -1,7 +1,7 @@
 //! `\info` (REPL) / bare `info` verb — a diagnostic snapshot.
 //!
 //! Builds the [`InfoCard`] from the SDK's cached handshake
-//! (`client.session()`), the server-assigned identity, the active
+//! (`client.connection()`), the server-assigned identity, the active
 //! credential profile, and the live shell session. No live request is
 //! issued: every field comes from state the shell already holds, so the
 //! card answers "what's my current state?" without a round trip.
@@ -9,7 +9,7 @@
 use brain_db_sdk::BrainClient;
 
 use crate::render::{
-    AgentInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo,
+    SpaceInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo,
 };
 use crate::session::Session;
 
@@ -18,7 +18,7 @@ use crate::session::Session;
 /// if any (the bare-token path has no profile name).
 #[must_use]
 pub fn collect(client: &BrainClient, session: &Session, profile: Option<&str>) -> InfoCard {
-    let snapshot = client.session();
+    let snapshot = client.connection();
 
     let features = &snapshot.server_features;
     let welcome = ServerWelcomeFields {
@@ -43,9 +43,9 @@ pub fn collect(client: &BrainClient, session: &Session, profile: Option<&str>) -
         welcome: Some(welcome),
     };
 
-    let agent = AgentInfo {
-        // Server-assigned agent id, read off the handshake.
-        agent_id: client.agent_id(),
+    let space = SpaceInfo {
+        // Server-assigned space id, read off the handshake.
+        space_id: client.space_id(),
         // Server-derived tenant namespace; the shell only reflects it
         // (it never sends a namespace). Empty == system namespace.
         namespace: client.namespace().to_string(),
@@ -60,14 +60,14 @@ pub fn collect(client: &BrainClient, session: &Session, profile: Option<&str>) -
 
     let session_info = SessionInfo {
         output: session.output.short_name().to_string(),
-        sticky_context: session.sticky_context,
+        sticky_session: session.sticky_session,
         active_txn: session.active_txn.map(|b| crate::parser::format_txn_id(&b)),
         timing: session.timing,
     };
 
     InfoCard {
         server,
-        agent,
+        space,
         connection,
         session: session_info,
     }

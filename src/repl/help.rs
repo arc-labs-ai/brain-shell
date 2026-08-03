@@ -55,7 +55,7 @@ fn top_level() -> HelpTopLevel {
                 title: "COGNITIVE VERBS".into(),
                 note: None,
                 items: vec![
-                    item("encode", "<TEXT> [--context N]", "write a memory"),
+                    item("encode", "<TEXT> [--session N]", "write a memory"),
                     item(
                         "recall",
                         "<QUERY> [--max-results N] [--include-text]",
@@ -69,7 +69,7 @@ fn top_level() -> HelpTopLevel {
                     item("txn", "begin | commit <ID> | abort <ID>", "transactions"),
                     item(
                         "subscribe",
-                        "[--context N] [--kind K] [--collect N]",
+                        "[--session N] [--kind K] [--collect N]",
                         "live event stream",
                     ),
                 ],
@@ -117,12 +117,12 @@ fn top_level() -> HelpTopLevel {
                         "auto|table|wide|json|ndjson|yaml",
                         "output format",
                     ),
-                    item("\\set context", "<N>", "session sticky --context"),
+                    item("\\set session", "<N>", "sticky default --session"),
                     item("\\unset txn", "", "drop active transaction"),
                     item("\\timing", "on|off", "per-op wall time"),
                     item("\\connect", "<host:port>", "reconnect (same credential)"),
                     item("\\info", "", "server / identity / session diagnostic"),
-                    item("\\whoami", "", "server-resolved agent / namespace / perms"),
+                    item("\\whoami", "", "server-resolved space / namespace / perms"),
                 ],
             },
             HelpSection {
@@ -199,7 +199,7 @@ fn help_encode() -> HelpVerb {
             "encode --from-stdin [flags]".into(),
         ],
         flags: vec![
-            row("--context N", "u64; default 0; sticky via \\set context"),
+            row("--session N", "u64; default 0; sticky via \\set session"),
             row("--request-id UUID", "idempotency key (24h cache)"),
             row(
                 "--wait",
@@ -217,10 +217,10 @@ fn help_encode() -> HelpVerb {
             row("--from-stdin", "shorthand for --from-file -"),
         ],
         description: vec![
-            "Memory kind, salience, edges, and near-duplicate consolidation are all decided server-side — the client supplies only the text. Encoding the same text twice in the same (agent, context) collapses to the existing memory automatically.".into(),
-            "Inherits the session's sticky --context (set via \\set context N) and active txn (begun via `txn begin`) unless the corresponding flag overrides. The card shows the caller's agent in wide output (`-o wide`).".into(),
+            "Memory kind, salience, edges, and near-duplicate consolidation are all decided server-side — the client supplies only the text. Encoding the same text twice in the same (space, session) collapses to the existing memory automatically.".into(),
+            "Inherits the shell's sticky --session (set via \\set session N) and active txn (begun via `txn begin`) unless the corresponding flag overrides. The card shows the caller's space in wide output (`-o wide`).".into(),
         ],
-        example: Some(r#"encode "Alice merged the auth-rewrite branch" --context 7"#.into()),
+        example: Some(r#"encode "Alice merged the auth-rewrite branch" --session 7"#.into()),
         see_also: vec![
             "recall".into(),
             "forget".into(),
@@ -257,8 +257,8 @@ fn help_recall() -> HelpVerb {
                 "drop hits created more than N seconds ago (server-side)",
             ),
             row(
-                "--filter-context N",
-                "keep results from this context; repeatable, up to 16",
+                "--filter-session N",
+                "keep results from this session; repeatable, up to 16",
             ),
             row(
                 "--filter-kind K",
@@ -280,13 +280,13 @@ fn help_recall() -> HelpVerb {
         ],
         sources: vec![],
         description: vec![
-            "Retrieval over the active context. Embeds the query text, fans out to the three retrievers (semantic + lexical + graph), fuses their ranks with RRF, and returns ranked MemoryResults. There is one retrieval path — every request walks it.".into(),
+            "Retrieval over the active session. Embeds the query text, fans out to the three retrievers (semantic + lexical + graph), fuses their ranks with RRF, and returns ranked MemoryResults. There is one retrieval path — every request walks it.".into(),
             "Score fields: `similarity_score` is the semantic retriever's cosine contribution to the fusion (0.0 if semantic didn't surface the row). `confidence` is the value `--confidence` thresholds against — the RRF-fused `fused_score`.".into(),
             "Each hit carries a `retrievers=N` column with the count of contributing retrievers (semantic + lexical + graph). A row with `retrievers=1` matched only one retriever and is typically weak signal — don't read its fused-score ranking as authoritative. The column is omitted when the list is empty (e.g. results served from a transaction's pending-write overlay).".into(),
             "When the top-K scores cluster within Δ<0.001 of each other, the table footer warns that ranking may not be meaningful (computed client-side from the response). Typically the embedder isn't loaded (test mode), or the query genuinely doesn't discriminate.".into(),
             "Returned ids are remembered in the session for tab-completion — the next `forget` or `link` can refer to them by short id.".into(),
         ],
-        example: Some(r#"recall "auth rewrite" --max-results 5 --include-text --filter-context 7"#.into()),
+        example: Some(r#"recall "auth rewrite" --max-results 5 --include-text --filter-session 7"#.into()),
         see_also: vec![
             "encode".into(),
             "reason".into(),
@@ -315,7 +315,7 @@ fn help_plan() -> HelpVerb {
                 "--strategy S",
                 "auto (default) | a-star | mcts | attractor-rollout",
             ),
-            row("--filter-context N", "repeatable; restrict to these contexts"),
+            row("--filter-session N", "repeatable; restrict to these sessions"),
             row("--txn HEX", "plan inside an open transaction"),
         ],
         sources: vec![],
@@ -348,7 +348,7 @@ fn help_reason() -> HelpVerb {
                 "--budget-wall-time-ms N",
                 "wall-time budget in ms; default 5000",
             ),
-            row("--filter-context N", "repeatable; restrict to these contexts"),
+            row("--filter-session N", "repeatable; restrict to these sessions"),
             row("--txn HEX", "reason inside an open transaction"),
         ],
         sources: vec![],
@@ -475,8 +475,8 @@ fn help_subscribe() -> HelpVerb {
         usage: vec!["subscribe [flags]".into()],
         flags: vec![
             row(
-                "--context N",
-                "filter to this context id; repeatable, up to 16",
+                "--session N",
+                "filter to this session id; repeatable, up to 16",
             ),
             row(
                 "--kind K",
@@ -495,10 +495,10 @@ fn help_subscribe() -> HelpVerb {
         description: vec![
             "Two modes. Streaming (default) tails forever — events flush per-line so `subscribe | jq` sees them as they arrive; Ctrl-C / SIGTERM unsubscribes cleanly. Batch (--collect N) waits for exactly N events and exits with the collected list.".into(),
             "Structured output auto-downgrades to ndjson while streaming so pretty JSON / YAML don't buffer poorly across event boundaries. Table output stays as table.".into(),
-            "Filters within a kind/context list are OR; across (kind AND context) is AND. --start-lsn below the oldest retained LSN returns SubscriptionLsnTooOld with the actual oldest in the message.".into(),
+            "Filters within a kind/session list are OR; across (kind AND session) is AND. --start-lsn below the oldest retained LSN returns SubscriptionLsnTooOld with the actual oldest in the message.".into(),
             "In the REPL, bare `subscribe` blocks the prompt — prefer running it in a second terminal so the writer (encode / forget) can fire events.".into(),
         ],
-        example: Some("subscribe --context 7 --start-lsn 0 --collect 50".into()),
+        example: Some("subscribe --session 7 --start-lsn 0 --collect 50".into()),
         see_also: vec!["encode".into(), "forget".into(), "recall".into()],
         reference: Some(HelpReference {
             clap_command: "subscribe --help".into(),
@@ -519,12 +519,12 @@ fn help_meta() -> HelpVerb {
         tagline: "meta commands reference".into(),
         usage: vec![
             "\\set output json|table        output format".into(),
-            "\\set context <N>              sticky default --context".into(),
+            "\\set session <N>              sticky default --session".into(),
             "\\unset txn                    drop the active transaction".into(),
             "\\timing on|off                show per-op wall time".into(),
             "\\connect <host:port>          reconnect with the same credential".into(),
             "\\info                         server / identity / connection / session diagnostic".into(),
-            "\\whoami                       server-resolved agent id / namespace / permissions".into(),
+            "\\whoami                       server-resolved space id / namespace / permissions".into(),
             "\\config list|get|set|path|edit  manage ~/.config/brain/config.toml".into(),
             "\\profile list|show|use        manage + switch credential profiles".into(),
             "\\namespace                    active tenant namespace (read-only; alias \\ns)".into(),
@@ -536,7 +536,7 @@ fn help_meta() -> HelpVerb {
             "Session-only settings (the first block) live until quit. Persisted commands (`\\config set`, `\\profile use`) write to ~/.config/brain/config.toml and survive across sessions.".into(),
             "Per-meta-command deep dives live under docs/reference/shell/meta/ — one page per meta verb (profile, config, set, unset, info, whoami, timing, connect, help).".into(),
         ],
-        example: Some("\\set output ndjson   →   \\set context 7   →   encode \"...\"".into()),
+        example: Some("\\set output ndjson   →   \\set session 7   →   encode \"...\"".into()),
         see_also: vec![],
         reference: Some(HelpReference {
             clap_command: "brain --help".into(),
@@ -618,7 +618,7 @@ mod tests {
         // the card, the card lies to the user about what flags exist.
         let card = render_card_table(&help_encode());
         for flag in [
-            "--context",
+            "--session",
             "--request-id",
             "--wait",
             "--wait-auto-edges-ms",
@@ -648,7 +648,7 @@ mod tests {
             "--confidence",
             "--salience-floor",
             "--max-age",
-            "--filter-context",
+            "--filter-session",
             "--filter-kind",
             "--include-text",
             "--include-edges",
@@ -746,7 +746,7 @@ mod tests {
     #[test]
     fn help_subscribe_lists_every_documented_flag() {
         let card = render_card_table(&help_subscribe());
-        assert!(card.contains("--context"));
+        assert!(card.contains("--session"));
         assert!(card.contains("--kind"));
         assert!(card.contains("--start-lsn"));
         assert!(card.contains("--collect"));

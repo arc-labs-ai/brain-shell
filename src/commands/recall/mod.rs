@@ -31,10 +31,10 @@ pub async fn run(
     };
     let txn = session.effective_txn(explicit_txn);
 
-    let context_filter = if args.filter_context.is_empty() {
+    let session_filter = if args.filter_session.is_empty() {
         None
     } else {
-        Some(args.filter_context.clone())
+        Some(args.filter_session.clone())
     };
 
     let kind_filter = if args.filter_kind.is_empty() {
@@ -55,12 +55,14 @@ pub async fn run(
     });
 
     let request = RecallRequest {
+        act_as: None,
+        trace: false,
         cue_text: args.query,
         // Empty subject: the server resolves subject + relation from the cue.
         subject_name: String::new(),
         max_results: args.max_results,
         confidence_threshold: args.confidence,
-        context_filter,
+        session_filter,
         age_bound_unix_nanos,
         as_of_record_time_unix_nanos: None,
         kind_filter,

@@ -68,7 +68,7 @@ pub fn memory_id_short_form(raw: WireMemoryId) -> String {
 
 /// First 4 bytes (8 hex chars) + `…` form of a 16-byte UUID-shaped id.
 ///
-/// Used for entity ids, statement ids, agent ids, request ids, and any
+/// Used for entity ids, statement ids, space ids, request ids, and any
 /// other UUID-shaped identifier whose full form is too long for a table
 /// cell. Eight hex chars give 32 bits of disambiguation — enough that
 /// collisions in a recalled batch are effectively impossible.

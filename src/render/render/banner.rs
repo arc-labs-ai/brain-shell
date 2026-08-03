@@ -5,7 +5,7 @@
 //! the title line, an identity block below, footer hint.
 //!
 //! The identity shown is what the server assigned from the connection's
-//! API-key credential: the agent id and tenant namespace. The local
+//! API-key credential: the space id and tenant namespace. The local
 //! credential profile (if one was used) is annotated underneath.
 
 use std::io::{self, Write};
@@ -27,8 +27,8 @@ pub struct WelcomeBanner {
     pub version: String,
     /// Server address the SDK is bound to, formatted as `host:port`.
     pub server_addr: String,
-    /// Server-assigned agent UUID bytes — rendered canonical dashed form.
-    pub agent_id: [u8; 16],
+    /// Server-assigned space UUID bytes — rendered canonical dashed form.
+    pub space_id: [u8; 16],
     /// Server-derived tenant namespace. Empty == the reserved `brain`
     /// system namespace (no tenant).
     pub namespace: String,
@@ -63,12 +63,12 @@ impl Render for WelcomeBanner {
         writeln!(w)?;
 
         // ── Identity block ───────────────────────────────────────
-        // The server assigns the agent id + namespace from the API key;
+        // The server assigns the space id + namespace from the API key;
         // we reflect them. The local credential profile is annotated
         // underneath the namespace.
-        let agent_label = lbl(&format!("{:<10}", "agent"));
-        let uuid = val(&fmt_uuid(&self.agent_id));
-        writeln!(w, "  {agent_label}  {uuid}")?;
+        let space_label = lbl(&format!("{:<10}", "space"));
+        let uuid = val(&fmt_uuid(&self.space_id));
+        writeln!(w, "  {space_label}  {uuid}")?;
 
         let blank_label: String = " ".repeat(10);
         let ns_label = lbl(&format!("{:<10}", "namespace"));
@@ -101,8 +101,8 @@ impl Render for WelcomeBanner {
             "product_name": self.product_name,
             "version": self.version,
             "server_addr": self.server_addr,
-            "agent": {
-                "id": fmt_uuid(&self.agent_id),
+            "space": {
+                "id": fmt_uuid(&self.space_id),
                 "namespace": self.namespace,
                 "profile": self.profile,
             },
@@ -133,7 +133,7 @@ mod tests {
             product_name: "brain-shell".into(),
             version: "1.0.0".into(),
             server_addr: "127.0.0.1:9090".into(),
-            agent_id: [
+            space_id: [
                 0x01, 0x9e, 0x43, 0x3e, 0x92, 0x72, 0x7e, 0x70, 0xb0, 0x71, 0x4a, 0x4f, 0xd6, 0x13,
                 0x5d, 0x1e,
             ],
@@ -206,7 +206,7 @@ mod tests {
         let out = render(&sample(), OutputFormat::Json);
         let v: Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["product_name"], "brain-shell");
-        assert_eq!(v["agent"]["namespace"], "acme");
-        assert_eq!(v["agent"]["profile"], "work");
+        assert_eq!(v["space"]["namespace"], "acme");
+        assert_eq!(v["space"]["profile"], "work");
     }
 }

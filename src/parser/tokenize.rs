@@ -22,8 +22,8 @@ pub enum TokenizeError {
 ///
 /// ```
 /// use brain_shell::parser::tokenize::tokenize_line;
-/// let toks = tokenize_line(r#"encode "hello world" --context 7"#).unwrap();
-/// assert_eq!(toks, vec!["encode", "hello world", "--context", "7"]);
+/// let toks = tokenize_line(r#"encode "hello world" --session 7"#).unwrap();
+/// assert_eq!(toks, vec!["encode", "hello world", "--session", "7"]);
 /// ```
 pub fn tokenize_line(line: &str) -> Result<Vec<String>, TokenizeError> {
     let bytes = line.as_bytes();
@@ -151,8 +151,8 @@ mod tests {
 
     #[test]
     fn double_quoted_preserves_spaces() {
-        let t = tokenize_line(r#"encode "hello world" --context 7"#).unwrap();
-        assert_eq!(t, vec!["encode", "hello world", "--context", "7"]);
+        let t = tokenize_line(r#"encode "hello world" --session 7"#).unwrap();
+        assert_eq!(t, vec!["encode", "hello world", "--session", "7"]);
     }
 
     #[test]

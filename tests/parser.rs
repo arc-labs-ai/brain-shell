@@ -15,11 +15,11 @@ fn parse_argv(argv: &[&str]) -> Cli {
 fn one_shot_encode_with_flags() {
     // Memory kind, salience, edges, and dedup are server-internal; the only
     // encode knobs are text + routing metadata.
-    let cli = parse_argv(&["encode", "hello world", "--context", "7"]);
+    let cli = parse_argv(&["encode", "hello world", "--session", "7"]);
     match cli.subcommand {
         Some(Command::Encode(a)) => {
             assert_eq!(a.text.as_deref(), Some("hello world"));
-            assert_eq!(a.context, Some(7));
+            assert_eq!(a.session, Some(7));
         }
         other => panic!("expected Encode, got {other:?}"),
     }
@@ -32,9 +32,9 @@ fn one_shot_recall_with_filters() {
         "auth rewrite",
         "--max-results",
         "5",
-        "--filter-context",
+        "--filter-session",
         "1",
-        "--filter-context",
+        "--filter-session",
         "2",
         "--filter-kind",
         "episodic",
@@ -43,7 +43,7 @@ fn one_shot_recall_with_filters() {
         Some(Command::Recall(a)) => {
             assert_eq!(a.query, "auth rewrite");
             assert_eq!(a.max_results, 5);
-            assert_eq!(a.filter_context, vec![1u64, 2]);
+            assert_eq!(a.filter_session, vec![1u64, 2]);
             assert_eq!(a.filter_kind, vec![KindArg::Episodic]);
             assert!(!a.include_text);
         }
@@ -127,11 +127,11 @@ fn one_shot_forget_decimal_id() {
 
 #[test]
 fn one_shot_subscribe_with_collect() {
-    let cli = parse_argv(&["subscribe", "--collect", "5", "--context", "1"]);
+    let cli = parse_argv(&["subscribe", "--collect", "5", "--session", "1"]);
     match cli.subcommand {
         Some(Command::Subscribe(a)) => {
             assert_eq!(a.collect, Some(5));
-            assert_eq!(a.context, vec![1u64]);
+            assert_eq!(a.session, vec![1u64]);
         }
         other => panic!("expected Subscribe, got {other:?}"),
     }
@@ -145,7 +145,7 @@ fn one_shot_subscribe_without_collect_is_streaming_mode() {
     match cli.subcommand {
         Some(Command::Subscribe(a)) => {
             assert_eq!(a.collect, None);
-            assert!(a.context.is_empty());
+            assert!(a.session.is_empty());
             assert!(a.kind.is_empty());
             assert_eq!(a.start_lsn, None);
         }
@@ -155,11 +155,11 @@ fn one_shot_subscribe_without_collect_is_streaming_mode() {
 
 #[test]
 fn one_shot_subscribe_streaming_with_filter() {
-    let cli = parse_argv(&["subscribe", "--context", "7", "--kind", "semantic"]);
+    let cli = parse_argv(&["subscribe", "--session", "7", "--kind", "semantic"]);
     match cli.subcommand {
         Some(Command::Subscribe(a)) => {
             assert_eq!(a.collect, None);
-            assert_eq!(a.context, vec![7u64]);
+            assert_eq!(a.session, vec![7u64]);
             assert_eq!(a.kind.len(), 1);
         }
         other => panic!("expected Subscribe, got {other:?}"),
@@ -184,15 +184,15 @@ fn global_token_flag_is_captured() {
 
 #[test]
 fn repl_line_tokenises_and_parses() {
-    // `encode "hello world" --context 7` typed at the REPL.
-    let toks = tokenize_line(r#"encode "hello world" --context 7"#).expect("tokenize");
+    // `encode "hello world" --session 7` typed at the REPL.
+    let toks = tokenize_line(r#"encode "hello world" --session 7"#).expect("tokenize");
     let mut argv = vec!["brain".to_string()];
     argv.extend(toks);
     let cli = Cli::try_parse_from(argv).expect("parse");
     match cli.subcommand {
         Some(Command::Encode(a)) => {
             assert_eq!(a.text.as_deref(), Some("hello world"));
-            assert_eq!(a.context, Some(7));
+            assert_eq!(a.session, Some(7));
         }
         other => panic!("expected Encode, got {other:?}"),
     }
@@ -222,8 +222,8 @@ fn tokenise_handles_quoted_with_spaces() {
 
 #[test]
 fn tokenise_escape_sequences() {
-    let toks = tokenize_line(r#"encode "tab\there" --context 5"#).unwrap();
-    assert_eq!(toks, vec!["encode", "tab\there", "--context", "5"]);
+    let toks = tokenize_line(r#"encode "tab\there" --session 5"#).unwrap();
+    assert_eq!(toks, vec!["encode", "tab\there", "--session", "5"]);
 }
 
 #[test]

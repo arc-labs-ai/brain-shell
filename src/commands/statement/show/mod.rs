@@ -24,6 +24,7 @@ pub async fn run(
     let statement_id = parse_wire_id(&args.id, "statement id")?;
     let resp = client
         .get_statement(&StatementGetRequest {
+            act_as: None,
             statement_id,
             follow_supersession: false,
         })

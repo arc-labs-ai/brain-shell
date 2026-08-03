@@ -60,6 +60,7 @@ fn build_request(args: &EntityListArgs) -> Result<EntityListRequest, BrainError>
         })?,
     };
     Ok(EntityListRequest {
+        act_as: None,
         entity_type_id,
         name_prefix: args.prefix.clone().unwrap_or_default(),
         mention_count_min: 0,

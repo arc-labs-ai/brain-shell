@@ -2,7 +2,7 @@
 //!
 //! `Auto` defers the decision until dispatch (table on a TTY, ndjson when
 //! piped) so a single command surface — `--output auto` — does the right
-//! thing in both human and script contexts. The other variants are
+//! thing in both human and script sessions. The other variants are
 //! explicit overrides; once set, dispatch never second-guesses.
 
 use std::fmt;

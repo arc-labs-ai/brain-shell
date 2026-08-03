@@ -25,6 +25,7 @@ pub async fn run(
 
     let out = client
         .list_relations_from(&RelationListFromRequest {
+            act_as: None,
             from_entity: root_id,
             relation_type_filter: String::new(),
             time_range_start_unix_nanos: 0,
@@ -37,6 +38,7 @@ pub async fn run(
         .await?;
     let into = client
         .list_relations_to(&RelationListToRequest {
+            act_as: None,
             to_entity: root_id,
             relation_type_filter: String::new(),
             time_range_start_unix_nanos: 0,

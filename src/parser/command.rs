@@ -258,7 +258,7 @@ pub enum Command {
     Schema(SchemaCommand),
     /// Drop into the interactive REPL (default when no subcommand given).
     Shell,
-    /// Show server / agent / connection / session diagnostic info.
+    /// Show server / space / connection / session diagnostic info.
     /// Same content as the REPL's `\info` meta.
     Info,
     /// Emit a shell-completion script.
@@ -393,9 +393,9 @@ pub struct EntityResolveArgs {
     /// Entity type id hint. Required: the server rejects an unhinted resolve.
     #[arg(long = "type")]
     pub type_id: u32,
-    /// Optional disambiguating context passed to the resolver.
+    /// Optional disambiguating session passed to the resolver.
     #[arg(long)]
-    pub context: Option<String>,
+    pub session: Option<String>,
     /// Create a new entity when no match is found.
     #[arg(long = "allow-create")]
     pub allow_create: bool,
@@ -709,7 +709,7 @@ pub struct EncodeArgs {
     pub text: Option<String>,
     /// Context id (default 0).
     #[arg(long)]
-    pub context: Option<u64>,
+    pub session: Option<u64>,
     /// Bind to an active transaction (hex bytes).
     #[arg(long)]
     pub txn: Option<String>,
@@ -753,9 +753,9 @@ pub struct RecallArgs {
     /// Confidence threshold `[0.0, 1.0]`.
     #[arg(long, default_value_t = 0.0f32)]
     pub confidence: f32,
-    /// Repeatable: keep only these context ids.
-    #[arg(long = "filter-context")]
-    pub filter_context: Vec<u64>,
+    /// Repeatable: keep only these session ids.
+    #[arg(long = "filter-session")]
+    pub filter_session: Vec<u64>,
     /// Repeatable: keep only these memory kinds.
     #[arg(long = "filter-kind", value_enum)]
     pub filter_kind: Vec<KindArg>,
@@ -810,9 +810,9 @@ pub struct PlanArgs {
     /// Search strategy. `auto` lets the planner choose.
     #[arg(long, value_enum)]
     pub strategy: Option<PlanStrategyArg>,
-    /// Repeatable: restrict the search to these context ids.
-    #[arg(long = "filter-context")]
-    pub filter_context: Vec<u64>,
+    /// Repeatable: restrict the search to these session ids.
+    #[arg(long = "filter-session")]
+    pub filter_session: Vec<u64>,
     /// Bind to an active transaction (hex bytes).
     #[arg(long)]
     pub txn: Option<String>,
@@ -834,9 +834,9 @@ pub struct ReasonArgs {
     /// Wall-time budget in milliseconds.
     #[arg(long = "budget-wall-time-ms", default_value_t = 5_000u32)]
     pub budget_wall_time_ms: u32,
-    /// Repeatable: restrict reasoning to these context ids.
-    #[arg(long = "filter-context")]
-    pub filter_context: Vec<u64>,
+    /// Repeatable: restrict reasoning to these session ids.
+    #[arg(long = "filter-session")]
+    pub filter_session: Vec<u64>,
     /// Bind to an active transaction (hex bytes).
     #[arg(long)]
     pub txn: Option<String>,
@@ -919,9 +919,9 @@ pub struct TxnArgs {
 
 #[derive(Debug, Args, Clone)]
 pub struct SubscribeArgs {
-    /// Repeatable: subscribe only to these context ids.
-    #[arg(long = "context")]
-    pub context: Vec<u64>,
+    /// Repeatable: subscribe only to these session ids.
+    #[arg(long = "session")]
+    pub session: Vec<u64>,
     /// Repeatable: subscribe only to these memory kinds.
     #[arg(long = "kind", value_enum)]
     pub kind: Vec<KindArg>,
@@ -992,11 +992,11 @@ mod tests {
 
     #[test]
     fn encode_one_shot_parses() {
-        let cli = parse(&["encode", "hello world", "--context", "7"]);
+        let cli = parse(&["encode", "hello world", "--session", "7"]);
         match cli.subcommand {
             Some(Command::Encode(args)) => {
                 assert_eq!(args.text.as_deref(), Some("hello world"));
-                assert_eq!(args.context, Some(7));
+                assert_eq!(args.session, Some(7));
             }
             other => panic!("expected Encode, got {other:?}"),
         }
@@ -1009,9 +1009,9 @@ mod tests {
             "auth",
             "--max-results",
             "5",
-            "--filter-context",
+            "--filter-session",
             "1",
-            "--filter-context",
+            "--filter-session",
             "2",
             "--filter-kind",
             "episodic",
@@ -1021,7 +1021,7 @@ mod tests {
         match cli.subcommand {
             Some(Command::Recall(args)) => {
                 assert_eq!(args.max_results, 5);
-                assert_eq!(args.filter_context, vec![1, 2]);
+                assert_eq!(args.filter_session, vec![1, 2]);
                 assert_eq!(args.filter_kind, vec![KindArg::Episodic, KindArg::Semantic]);
             }
             other => panic!("expected Recall, got {other:?}"),

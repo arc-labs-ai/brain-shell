@@ -11,7 +11,7 @@
 //! - `connection` — wrap [`brain_db_sdk::BrainClient`] with shell defaults.
 //! - `parser`     — clap `Cli` + tokenizer (one tree for argv and REPL lines).
 //! - `commands`   — one module per verb, returning a uniform renderer.
-//! - `session`    — REPL state across lines (active txn, sticky context, ids).
+//! - `session`    — REPL state across lines (active txn, sticky session, ids).
 //! - `repl`       — rustyline editor, completion, event loop.
 //! - `cli`        — one-shot dispatch.
 //! - `render`     — vendored terminal rendering (theme, table, graph, json).

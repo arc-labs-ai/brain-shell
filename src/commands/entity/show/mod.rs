@@ -30,12 +30,16 @@ pub async fn run(
     let entity_id = resolve_id(client, &args).await?;
 
     let resp = client
-        .get_entity(&brain_db_sdk::wire::types::EntityGetRequest { entity_id })
+        .get_entity(&brain_db_sdk::wire::types::EntityGetRequest {
+            entity_id,
+            act_as: None,
+        })
         .await?;
     let entity = resp.entity;
 
     let relations_out = client
         .list_relations_from(&RelationListFromRequest {
+            act_as: None,
             from_entity: entity_id,
             relation_type_filter: String::new(),
             time_range_start_unix_nanos: 0,
@@ -48,6 +52,7 @@ pub async fn run(
         .await?;
     let relations_in = client
         .list_relations_to(&RelationListToRequest {
+            act_as: None,
             to_entity: entity_id,
             relation_type_filter: String::new(),
             time_range_start_unix_nanos: 0,
@@ -61,6 +66,7 @@ pub async fn run(
 
     let statements = client
         .list_statements(&StatementListRequest {
+            act_as: None,
             subject: entity_id,
             predicate: String::new(),
             kind: 0,
@@ -121,7 +127,7 @@ async fn resolve_id(client: &BrainClient, args: &EntityShowArgs) -> Result<[u8; 
         &EntityResolveArgs {
             name: args.id_or_name.clone(),
             type_id,
-            context: None,
+            session: None,
             allow_create: false,
         },
     )

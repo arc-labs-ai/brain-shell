@@ -330,7 +330,7 @@ enum Meta {
     Quit,
     Help(Option<String>),
     SetOutput(OutputFormatArg),
-    SetContext(u64),
+    SetSession(u64),
     UnsetTxn,
     Timing(bool),
     Connect(String),
@@ -389,9 +389,9 @@ fn parse_meta(line: &str) -> Option<Meta> {
                 _ => Some(Meta::Unknown(v)),
             };
         }
-        if parts.len() == 2 && parts[0] == "context" {
+        if parts.len() == 2 && parts[0] == "session" {
             if let Ok(n) = parts[1].parse::<u64>() {
-                return Some(Meta::SetContext(n));
+                return Some(Meta::SetSession(n));
             }
         }
         return Some(Meta::Unknown(rest.to_string()));
@@ -509,9 +509,9 @@ async fn handle_meta(
             println!("output = {label}");
             false
         }
-        Meta::SetContext(n) => {
-            session.sticky_context = Some(n);
-            println!("sticky context = {n}");
+        Meta::SetSession(n) => {
+            session.sticky_session = Some(n);
+            println!("sticky session = {n}");
             false
         }
         Meta::UnsetTxn => {
@@ -593,14 +593,14 @@ async fn handle_meta(
 
 /// `\whoami` — the authoritative, server-resolved identity.
 fn print_whoami(client: &BrainClient, profile: Option<&str>) {
-    let session = client.session();
+    let session = client.connection();
     let perms = &session.permissions;
-    let agent_hex: String = client
-        .agent_id()
+    let space_hex: String = client
+        .space_id()
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    println!("agent_id    = {agent_hex}");
+    println!("space_id    = {space_hex}");
     let ns = client.namespace();
     if ns.is_empty() {
         println!("namespace   = (system)");
@@ -619,12 +619,12 @@ fn print_whoami(client: &BrainClient, profile: Option<&str>) {
 
 /// `\caps` — two views the operator cares about.
 ///
-/// The first block is the per-agent grant + transport limits captured at
+/// The first block is the per-space grant + transport limits captured at
 /// connect time (the handshake snapshot, always available). The second block
 /// is the shard's *live* capability state — reranker, extractor tiers, active
 /// schema namespaces, embedding dim — fetched fresh via GET_CAPABILITIES.
 async fn print_caps(client: &BrainClient) {
-    let session = client.session();
+    let session = client.connection();
     let perms = &session.permissions;
     let features = &session.server_features;
     println!("capabilities (from handshake)");
@@ -841,9 +841,9 @@ fn apply_setting_to_session(key: &str, value: &str, session: &mut Session) {
         "timing" => {
             session.timing = matches!(value, "true" | "on" | "1");
         }
-        "sticky_context" => {
+        "sticky_session" => {
             if let Ok(n) = value.parse::<u64>() {
-                session.sticky_context = Some(n);
+                session.sticky_session = Some(n);
             }
         }
         _ => {} // `server` / `active_profile` / unknown: no live-session mirror.
@@ -864,7 +864,7 @@ fn build_welcome_banner(
         product_name: "brain-shell".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         server_addr: session.server.to_string(),
-        agent_id: client.agent_id(),
+        space_id: client.space_id(),
         namespace: client.namespace().to_string(),
         profile: profile.map(str::to_owned),
     }

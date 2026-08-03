@@ -25,6 +25,7 @@ pub async fn run(
     let txn = session.effective_txn(explicit_txn);
 
     let request = UnlinkRequest {
+        act_as: None,
         source: args.src.0.raw(),
         target: args.tgt.0.raw(),
         kind: args.kind.into_wire(),

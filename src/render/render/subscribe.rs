@@ -62,7 +62,7 @@ fn push_header(table: &mut comfy_table::Table, ctx: &RenderCtx) {
         Cell::new(theme.paint(Token::Label, "lsn", policy)),
         Cell::new(theme.paint(Token::Label, "type", policy)),
         Cell::new(theme.paint(Token::Label, "id", policy)),
-        Cell::new(theme.paint(Token::Label, "ctx", policy)),
+        Cell::new(theme.paint(Token::Label, "sess", policy)),
         Cell::new(theme.paint(Token::Label, "kind", policy)),
         Cell::new(theme.paint(Token::Label, "text", policy)),
     ]);
@@ -79,7 +79,7 @@ fn push_event_row(table: &mut comfy_table::Table, ctx: &RenderCtx, e: &Subscript
         Cell::new(e.lsn),
         Cell::new(format!("{:?}", e.event_type)),
         Cell::new(theme.paint(Token::MemoryId, &fmt_short_id(e.memory_id), policy)),
-        Cell::new(e.context_id),
+        Cell::new(e.session_id),
         Cell::new(fmt_kind(e.kind)),
         Cell::new(text),
     ]);
@@ -90,7 +90,7 @@ fn event_to_json(e: &SubscriptionEvent) -> Value {
         "lsn": e.lsn,
         "event_type": format!("{:?}", e.event_type),
         "memory_id": fmt_id(e.memory_id),
-        "context_id": e.context_id,
+        "session_id": e.session_id,
         "kind": fmt_kind(e.kind),
         "salience": e.salience,
         "timestamp_unix_nanos": e.timestamp_unix_nanos,
@@ -111,7 +111,7 @@ fn event_to_json(e: &SubscriptionEvent) -> Value {
         }
     }
     // EdgeAdded / EdgeRemoved / EdgeSuperseded events carry an
-    // edge_payload side-channel — surface it in the JSON so agents
+    // edge_payload side-channel — surface it in the JSON so spaces
     // driving on the change feed can filter on origin (AUTO_DERIVED
     // vs EXPLICIT) and inspect the (from, to, kind, weight) tuple
     // without a second RPC.
@@ -188,6 +188,7 @@ fn stage_kind_str(k: StageKind) -> &'static str {
         StageKind::AutoEdge => "auto_edge",
         StageKind::TemporalEdge => "temporal_edge",
         StageKind::Extractor => "extractor",
+        StageKind::Hype => "hype",
     }
 }
 
@@ -220,7 +221,7 @@ mod tests {
         SubscriptionEvent {
             event_type: EventType::Encoded,
             memory_id: 1,
-            context_id: 7,
+            session_id: 7,
             text: text.into(),
             kind: MemoryKindWire::Episodic,
             salience: 0.5,
@@ -254,7 +255,7 @@ mod tests {
         let ev = SubscriptionEvent {
             event_type: EventType::StageCompleted,
             memory_id: 17,
-            context_id: 0,
+            session_id: 0,
             text: String::new(),
             kind: MemoryKindWire::Episodic,
             salience: 0.0,

@@ -1,5 +1,5 @@
 //! Thin wrapper around [`brain_db_sdk::BrainClient`] applying the shell's
-//! defaults (agent identity, per-request timeout).
+//! defaults (space identity, per-request timeout).
 //!
 //! The mux client multiplexes concurrent streams over one socket, so the shell
 //! needs only a single connection — a held SUBSCRIBE stream no longer starves
@@ -16,7 +16,7 @@ use brain_db_sdk::{Auth, BrainClient, ClientConfig};
 /// per-request `timeout`.
 ///
 /// The token is the connection's whole identity — the server resolves
-/// `(namespace, agent, permissions)` from it and assigns the agent id.
+/// `(namespace, space, permissions)` from it and assigns the space id.
 /// There is no anonymous connect; a wrong/revoked key makes the
 /// handshake return a server auth error rather than degrading silently.
 pub async fn connect(

@@ -265,7 +265,7 @@ fn code_info(code: u16) -> CodeInfo {
         0x0041 => ("MissingRequiredField", "Validation", false),
         0x0042 => ("TextTooLarge", "Validation", false),
         0x0043 => ("TextEmpty", "Validation", false),
-        0x0044 => ("BadContextId", "Validation", false),
+        0x0044 => ("BadSessionId", "Validation", false),
         0x0045 => ("BadMemoryKind", "Validation", false),
         0x0046 => ("BadEdgeKind", "Validation", false),
         0x0047 => ("BadStrategyHint", "Validation", false),
@@ -276,7 +276,7 @@ fn code_info(code: u16) -> CodeInfo {
         0x004C => ("RelationTypeNotInSchema", "Validation", false),
         // Not found
         0x0050 => ("MemoryNotFound", "NotFound", false),
-        0x0051 => ("ContextNotFound", "NotFound", false),
+        0x0051 => ("SessionNotFound", "NotFound", false),
         0x0052 => ("SubscriptionNotFound", "NotFound", false),
         0x0053 => ("SnapshotNotFound", "NotFound", false),
         0x0054 => ("TxnNotFound", "NotFound", false),

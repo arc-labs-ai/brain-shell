@@ -69,18 +69,18 @@ impl Render for RecallResults {
             let mut meta: Vec<String> = vec![
                 id_painted,
                 kind_str,
-                format!("ctx={}", r.context_id),
+                format!("sess={}", r.session_id),
                 salience,
                 score_painted,
                 format!("sem={:.4}", r.similarity_score),
             ];
-            // Owning agent — first 8 hex of the agent uuid. Only shown
+            // Owning space — first 8 hex of the space uuid. Only shown
             // when known (non-zero); it labels each hit's owner (the
-            // server stamps every hit with its owning agent). The zero
-            // agent is the anonymous owner and adds only noise.
-            if r.agent_id != [0u8; 16] {
-                let short_agent: String = fmt_hex_16_bare(&r.agent_id).chars().take(8).collect();
-                meta.push(format!("agent={short_agent}"));
+            // server stamps every hit with its owning space). The zero
+            // space is the anonymous owner and adds only noise.
+            if r.space_id != [0u8; 16] {
+                let short_space: String = fmt_hex_16_bare(&r.space_id).chars().take(8).collect();
+                meta.push(format!("space={short_space}"));
             }
             // Cross-encoder relevance, only present when rerank scored
             // this hit. Surfacing it makes the re-sort auditable.
@@ -242,8 +242,8 @@ impl Render for RecallResults {
                     "lsn": r.lsn,
                     "flags": r.flags,
                     "kind": fmt_kind(r.kind),
-                    "agent_id": fmt_uuid(&r.agent_id),
-                    "context_id": r.context_id,
+                    "space_id": fmt_uuid(&r.space_id),
+                    "session_id": r.session_id,
                     "created_at_unix_nanos": r.created_at_unix_nanos,
                     "last_accessed_at_unix_nanos": r.last_accessed_at_unix_nanos,
                     "consolidated_at_unix_nanos": r.consolidated_at_unix_nanos,
@@ -305,8 +305,8 @@ mod tests {
             confidence: score,
             salience: 0.5,
             kind: MemoryKindWire::Episodic,
-            agent_id: [0u8; 16],
-            context_id: 0,
+            space_id: [0u8; 16],
+            session_id: 0,
             created_at_unix_nanos: 0,
             last_accessed_at_unix_nanos: 0,
             edges: None,
@@ -379,24 +379,24 @@ mod tests {
 
     #[test]
     fn shows_agent_token_only_when_known() {
-        // Zero agent (anonymous) → no agent= token.
+        // Zero space (anonymous) → no space= token.
         let r = RecallResults(vec![make_hit("anon", 0.9)]);
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
         assert!(
-            !s.contains("agent="),
-            "zero agent should not render token: {s}"
+            !s.contains("space="),
+            "zero space should not render token: {s}"
         );
 
-        // Known agent → first 8 hex of the uuid rides on the line.
+        // Known space → first 8 hex of the uuid rides on the line.
         let mut hit = make_hit("owned", 0.9);
-        hit.agent_id = [0xab, 0xcd, 0xef, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        hit.space_id = [0xab, 0xcd, 0xef, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
         let r = RecallResults(vec![hit]);
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
-        assert!(s.contains("agent=abcdef01"), "expected agent token: {s}");
+        assert!(s.contains("space=abcdef01"), "expected space token: {s}");
     }
 
     #[test]
