@@ -16,9 +16,9 @@ use brain_db_sdk::wire::cbor::{from_cbor_bytes, to_cbor_bytes};
 use brain_db_sdk::wire::frame::{Frame, FLAG_EOS};
 use brain_db_sdk::wire::opcode::Opcode;
 use brain_db_sdk::wire::types::{
-    SpacePermissions, AuthOkPayload, AuthPayload, EncodeResponse, HelloPayload, MemoryKindWire,
-    ServerFeatures, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload, SubscribeRequest,
-    SubscriptionEvent, UnsubscribeResponse, WelcomePayload,
+    AuthOkPayload, AuthPayload, EncodeResponse, HelloPayload, MemoryKindWire, ServerFeatures,
+    SpacePermissions, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload,
+    SubscribeRequest, SubscriptionEvent, UnsubscribeResponse, WelcomePayload,
 };
 use brain_db_sdk::{Auth, BrainClient, RecallBuilder};
 use tokio::net::{TcpListener, TcpStream};

@@ -9,7 +9,7 @@
 use brain_db_sdk::BrainClient;
 
 use crate::render::{
-    SpaceInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo,
+    ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo, SpaceInfo,
 };
 use crate::session::Session;
 

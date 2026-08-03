@@ -40,7 +40,7 @@ pub use graph_tree::{GraphNode, GraphTree};
 pub use help::{
     HelpFlagRow, HelpItem, HelpReference, HelpSection, HelpTopLevel, HelpUnknown, HelpVerb,
 };
-pub use info::{SpaceInfo, ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo};
+pub use info::{ConnectionInfo, InfoCard, ServerInfo, ServerWelcomeFields, SessionInfo, SpaceInfo};
 pub use link::{LinkRendered, UnlinkRendered};
 pub use memory::RecallResults;
 pub use plan::PlanSteps;
